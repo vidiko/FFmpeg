@@ -237,6 +237,7 @@ static int do_vmaf(FFFrameSync *fs)
     err = get_picture(ref, &pic_ref, s->bpc);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
+        av_frame_free(&dist);
         return AVERROR(ENOMEM);
     }
 
@@ -244,12 +245,14 @@ static int do_vmaf(FFFrameSync *fs)
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
         vmaf_picture_unref(&pic_ref);
+        av_frame_free(&dist);
         return AVERROR(ENOMEM);
     }
 
     err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_read_pictures.\n");
+        av_frame_free(&dist);
         return AVERROR(EINVAL);
     }
 
@@ -865,6 +868,7 @@ static int do_vmaf_cuda(FFFrameSync* fs)
                                  frames_ctx->sw_format);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during copy_picture_data_cuda.\n");
+        av_frame_free(&dist);
         return AVERROR(ENOMEM);
     }
 
@@ -872,12 +876,14 @@ static int do_vmaf_cuda(FFFrameSync* fs)
                                  frames_ctx->sw_format);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during copy_picture_data_cuda.\n");
+        av_frame_free(&dist);
         return AVERROR(ENOMEM);
     }
 
     err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_read_pictures.\n");
+        av_frame_free(&dist);
         return AVERROR(EINVAL);
     }
 

@@ -519,6 +519,35 @@ static enum VmafLogLevel log_level_map(int log_level)
     }
 }
 
+static enum VmafPoolingMethod pool_method_map(const char *pool_method)
+{
+    if (!pool_method)
+        return VMAF_POOL_METHOD_MEAN;
+    if (!strcmp(pool_method, "min"))
+        return VMAF_POOL_METHOD_MIN;
+    if (!strcmp(pool_method, "max"))
+        return VMAF_POOL_METHOD_MAX;
+    if (!strcmp(pool_method, "mean"))
+        return VMAF_POOL_METHOD_MEAN;
+    if (!strcmp(pool_method, "harmonic_mean"))
+        return VMAF_POOL_METHOD_HARMONIC_MEAN;
+
+    return VMAF_POOL_METHOD_UNKNOWN;
+}
+
+static av_cold int check_pool_method(AVFilterContext *ctx)
+{
+    LIBVMAFContext *s = ctx->priv;
+
+    if (pool_method_map(s->pool) == VMAF_POOL_METHOD_UNKNOWN) {
+        av_log(ctx, AV_LOG_ERROR, "Unknown pool method '%s', "
+               "must be one of min, max, mean, harmonic_mean.\n", s->pool);
+        return AVERROR(EINVAL);
+    }
+
+    return 0;
+}
+
 static av_cold int init(AVFilterContext *ctx)
 {
     LIBVMAFContext *s = ctx->priv;
@@ -529,6 +558,10 @@ static av_cold int init(AVFilterContext *ctx)
         .n_subsample = s->n_subsample,
         .n_threads = s->n_threads,
     };
+
+    err = check_pool_method(ctx);
+    if (err < 0)
+        return err;
 
     err = vmaf_init(&s->vmaf, cfg);
     if (err)
@@ -618,20 +651,6 @@ static enum VmafOutputFormat log_fmt_map(const char *log_fmt)
     }
 
     return VMAF_OUTPUT_FORMAT_XML;
-}
-
-static enum VmafPoolingMethod pool_method_map(const char *pool_method)
-{
-    if (pool_method) {
-        if (!strcmp(pool_method, "min"))
-            return VMAF_POOL_METHOD_MIN;
-        if (!strcmp(pool_method, "mean"))
-            return VMAF_POOL_METHOD_MEAN;
-        if (!strcmp(pool_method, "harmonic_mean"))
-            return VMAF_POOL_METHOD_HARMONIC_MEAN;
-    }
-
-    return VMAF_POOL_METHOD_MEAN;
 }
 
 static av_cold void uninit(AVFilterContext *ctx)
@@ -887,6 +906,10 @@ static int do_vmaf_cuda(FFFrameSync* fs)
 static av_cold int init_cuda(AVFilterContext *ctx)
 {
     LIBVMAFContext *s = ctx->priv;
+    int err = check_pool_method(ctx);
+    if (err < 0)
+        return err;
+
     s->fs.on_event = do_vmaf_cuda;
     return 0;
 }

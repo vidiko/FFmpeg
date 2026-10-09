@@ -249,12 +249,13 @@ static int do_vmaf(FFFrameSync *fs)
         return AVERROR(ENOMEM);
     }
 
-    err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
+    err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_read_pictures.\n");
         av_frame_free(&dist);
         return AVERROR(EINVAL);
     }
+    s->frame_cnt++;
 
     return ff_filter_frame(ctx->outputs[0], dist);
 }
@@ -880,12 +881,13 @@ static int do_vmaf_cuda(FFFrameSync* fs)
         return AVERROR(ENOMEM);
     }
 
-    err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
+    err = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt);
     if (err) {
         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_read_pictures.\n");
         av_frame_free(&dist);
         return AVERROR(EINVAL);
     }
+    s->frame_cnt++;
 
     return ff_filter_frame(ctx->outputs[0], dist);
 }

@@ -835,8 +835,10 @@ static int copy_picture_data_cuda(VmafContext* vmaf,
         m.Height = dst->h[i];
 
         err = cu->cuMemcpy2D(&m);
-        if (err)
+        if (err) {
+            cu->cuCtxPopCurrent(NULL);
             return AVERROR_EXTERNAL;
+        }
         break;
     }
 

@@ -270,7 +270,10 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
 
     // priv->unit_opts.tier already set
     // priv->unit_opts.fixed_qp_idr already set
-    priv->unit_opts.cu_qp_delta_enabled_flag = (ctx->va_rc_mode != VA_RC_CQP);
+    // ROI in constant-QP mode changes the QP of individual CUs, which the
+    // bitstream can only signal with cu_qp_delta.
+    priv->unit_opts.cu_qp_delta_enabled_flag = ctx->va_rc_mode != VA_RC_CQP ||
+                                               base_ctx->roi_allowed;
     priv->unit_opts.tile_rows = ctx->tile_rows;
     priv->unit_opts.tile_cols = ctx->tile_cols;
     priv->unit_opts.nb_slices = ctx->nb_slices;
@@ -324,7 +327,8 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
     // update pps setting according to queried result
     if (priv->va_features) {
         VAConfigAttribValEncHEVCFeatures features = { .value = priv->va_features };
-        if (ctx->va_rc_mode != VA_RC_CQP)
+        if (pps->cu_qp_delta_enabled_flag ||
+            features.bits.cu_qp_delta == VA_FEATURE_REQUIRED)
             pps->cu_qp_delta_enabled_flag =
                 !!features.bits.cu_qp_delta;
 

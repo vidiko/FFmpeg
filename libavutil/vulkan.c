@@ -2239,6 +2239,7 @@ void ff_vk_frame_barrier(FFVulkanContext *s, FFVkExecContext *e,
                          uint32_t              new_qf)
 {
     int found = -1;
+    uint32_t src_qf, dst_qf = new_qf;
     AVVkFrame *vkf = (AVVkFrame *)pic->data[0];
     const int nb_images = ff_vk_count_images(vkf);
     for (int i = 0; i < e->nb_frame_deps; i++)
@@ -2247,6 +2248,21 @@ void ff_vk_frame_barrier(FFVulkanContext *s, FFVkExecContext *e,
                 found = i;
             break;
         }
+
+    src_qf = found >= 0 ? e->queue_family_dst[found] : vkf->queue_family[0];
+
+    /* Unequal queue family indices define a queue family ownership transfer,
+     * and an exclusive image can only be transferred to a queue family that
+     * exists (or to the external or foreign one), never to
+     * VK_QUEUE_FAMILY_IGNORED (VUID-VkImageMemoryBarrier2-image-09118).
+     * Frames on a device with a single queue family are tracked as owned by
+     * that family, so a caller that asks for no particular family keeps the
+     * current owner: equal indices mean no transfer. */
+    if (new_qf == VK_QUEUE_FAMILY_IGNORED &&
+        src_qf != VK_QUEUE_FAMILY_IGNORED &&
+        src_qf != VK_QUEUE_FAMILY_EXTERNAL &&
+        src_qf != VK_QUEUE_FAMILY_FOREIGN_EXT)
+        dst_qf = src_qf;
 
     /* Earlier submissions are ordered by the frame's semaphore, which makes
      * their writes available and visible, so only accesses recorded in this
@@ -2261,8 +2277,8 @@ void ff_vk_frame_barrier(FFVulkanContext *s, FFVkExecContext *e,
             .dstAccessMask = new_access,
             .oldLayout = found >= 0 ? e->layout_dst[found] : vkf->layout[0],
             .newLayout = new_layout,
-            .srcQueueFamilyIndex = found >= 0 ? e->queue_family_dst[found] : vkf->queue_family[0],
-            .dstQueueFamilyIndex = new_qf,
+            .srcQueueFamilyIndex = src_qf,
+            .dstQueueFamilyIndex = dst_qf,
             .image = vkf->img[i],
             .subresourceRange = (VkImageSubresourceRange) {
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,

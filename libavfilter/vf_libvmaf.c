@@ -661,6 +661,7 @@ static av_cold void uninit(AVFilterContext *ctx)
         if (err) {
             av_log(ctx, AV_LOG_ERROR,
                    "problem getting pooled vmaf score.\n");
+            continue;
         }
 
         av_log(ctx, AV_LOG_INFO, "VMAF score: %f\n", vmaf_score);

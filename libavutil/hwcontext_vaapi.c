@@ -1065,9 +1065,11 @@ static const struct {
     DRM_MAP(NV12, 1, DRM_FORMAT_NV12),
 #if defined(VA_FOURCC_P010) && defined(DRM_FORMAT_R16)
     DRM_MAP(P010, 2, DRM_FORMAT_R16, DRM_FORMAT_RG1616),
+    DRM_MAP(P010, 2, DRM_FORMAT_R16, DRM_FORMAT_GR1616),
 #endif
 #if defined(VA_FOURCC_P012) && defined(DRM_FORMAT_R16)
     DRM_MAP(P012, 2, DRM_FORMAT_R16, DRM_FORMAT_RG1616),
+    DRM_MAP(P012, 2, DRM_FORMAT_R16, DRM_FORMAT_GR1616),
 #endif
     DRM_MAP(BGRA, 1, DRM_FORMAT_ARGB8888),
     DRM_MAP(BGRX, 1, DRM_FORMAT_XRGB8888),
@@ -1163,8 +1165,15 @@ static int vaapi_map_from_drm(AVHWFramesContext *src_fc, AVFrame *dst,
         }
         if (j != desc->nb_layers)
             continue;
-        va_fourcc = vaapi_drm_format_map[i].va_fourcc;
-        break;
+        /* P010 and P012 share their layer formats: prefer the entry
+         * matching the destination, else keep the first match. */
+        if (!va_fourcc)
+            va_fourcc = vaapi_drm_format_map[i].va_fourcc;
+        if (vaapi_pix_fmt_from_fourcc(vaapi_drm_format_map[i].va_fourcc) ==
+            dst_fc->sw_format) {
+            va_fourcc = vaapi_drm_format_map[i].va_fourcc;
+            break;
+        }
     }
     if (!va_fourcc) {
         av_log(dst_fc, AV_LOG_ERROR, "DRM format not supported "

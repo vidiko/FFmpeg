@@ -226,8 +226,8 @@ typedef struct AVVkFrameInternal {
     VkSemaphore drm_sync_sem;
 
 #if CONFIG_CUDA
-    /* Importing external memory into cuda is really expensive so we keep the
-     * memory imported all the time */
+    /* Importing external memory into CUDA is expensive, so cache the import
+     * until the CUDA context changes. */
     AVBufferRef *cuda_fc_ref; /* Need to keep it around for uninit */
     CUexternalMemory ext_mem[AV_NUM_DATA_POINTERS];
     CUmipmappedArray cu_mma[AV_NUM_DATA_POINTERS];
@@ -2403,6 +2403,47 @@ static int alloc_mem(AVHWDeviceContext *ctx, VkMemoryRequirements *req,
     return 0;
 }
 
+#if CONFIG_CUDA
+static void vulkan_free_cuda_import(AVVkFrameInternal *internal)
+{
+    AVHWFramesContext *cuda_fc;
+    AVHWDeviceContext *cuda_cu;
+    AVCUDADeviceContext *cuda_dev;
+    CudaFunctions *cu;
+    int planes;
+
+    if (!internal->cuda_fc_ref)
+        return;
+
+    cuda_fc  = (AVHWFramesContext *)internal->cuda_fc_ref->data;
+    planes   = av_pix_fmt_count_planes(cuda_fc->sw_format);
+    cuda_cu  = cuda_fc->device_ctx;
+    cuda_dev = cuda_cu->hwctx;
+    cu       = cuda_dev->internal->cuda_dl;
+
+    for (int i = 0; i < planes; i++) {
+        if (internal->cu_sem[i])
+            CHECK_CU(cu->cuDestroyExternalSemaphore(internal->cu_sem[i]));
+        if (internal->cu_mma[i])
+            CHECK_CU(cu->cuMipmappedArrayDestroy(internal->cu_mma[i]));
+        if (internal->ext_mem[i])
+            CHECK_CU(cu->cuDestroyExternalMemory(internal->ext_mem[i]));
+        internal->cu_sem[i]   = NULL;
+        internal->cu_mma[i]   = NULL;
+        internal->cu_array[i] = NULL;
+        internal->ext_mem[i]  = NULL;
+#ifdef _WIN32
+        if (internal->ext_sem_handle[i])
+            CloseHandle(internal->ext_sem_handle[i]);
+        if (internal->ext_mem_handle[i])
+            CloseHandle(internal->ext_mem_handle[i]);
+        internal->ext_sem_handle[i] = NULL;
+        internal->ext_mem_handle[i] = NULL;
+#endif
+    }
+}
+#endif
+
 static void vulkan_free_internal(VulkanDevicePriv *p, AVVkFrame *f)
 {
     av_unused AVVkFrameInternal *internal = f->internal;
@@ -2412,31 +2453,8 @@ static void vulkan_free_internal(VulkanDevicePriv *p, AVVkFrame *f)
         return;
 
 #if CONFIG_CUDA
-    if (internal->cuda_fc_ref) {
-        AVHWFramesContext *cuda_fc = (AVHWFramesContext *)internal->cuda_fc_ref->data;
-        int planes = av_pix_fmt_count_planes(cuda_fc->sw_format);
-        AVHWDeviceContext *cuda_cu = cuda_fc->device_ctx;
-        AVCUDADeviceContext *cuda_dev = cuda_cu->hwctx;
-        AVCUDADeviceContextInternal *cu_internal = cuda_dev->internal;
-        CudaFunctions *cu = cu_internal->cuda_dl;
-
-        for (int i = 0; i < planes; i++) {
-            if (internal->cu_sem[i])
-                CHECK_CU(cu->cuDestroyExternalSemaphore(internal->cu_sem[i]));
-            if (internal->cu_mma[i])
-                CHECK_CU(cu->cuMipmappedArrayDestroy(internal->cu_mma[i]));
-            if (internal->ext_mem[i])
-                CHECK_CU(cu->cuDestroyExternalMemory(internal->ext_mem[i]));
-#ifdef _WIN32
-            if (internal->ext_sem_handle[i])
-                CloseHandle(internal->ext_sem_handle[i]);
-            if (internal->ext_mem_handle[i])
-                CloseHandle(internal->ext_mem_handle[i]);
-#endif
-        }
-
-        av_buffer_unref(&internal->cuda_fc_ref);
-    }
+    vulkan_free_cuda_import(internal);
+    av_buffer_unref(&internal->cuda_fc_ref);
 #endif
 
     if (internal->drm_sync_sem != VK_NULL_HANDLE)
@@ -4191,6 +4209,43 @@ static int vulkan_export_to_cuda(AVHWFramesContext *hwfc,
     dst_f = (AVVkFrame *)frame->data[0];
     dst_int = dst_f->internal;
 
+    if (dst_int->cuda_fc_ref) {
+        AVHWFramesContext *old_fc = (AVHWFramesContext *)dst_int->cuda_fc_ref->data;
+        AVHWDeviceContext *old_cu = old_fc->device_ctx;
+        AVCUDADeviceContext *old_dev = old_cu->hwctx;
+
+        /* The memory and semaphores were imported into another CUDA context,
+         * and their handles are not valid in this one. Wait for the work
+         * queued in that context, release the import and import again. */
+        if (old_dev->cuda_ctx != cuda_dev->cuda_ctx) {
+            CudaFunctions *old_dl = old_dev->internal->cuda_dl;
+            CUcontext dummy;
+            int pop_err;
+
+            err = FF_CUDA_CHECK_DL(old_cu, old_dl,
+                                   old_dl->cuCtxPushCurrent(old_dev->cuda_ctx));
+            if (err < 0)
+                return err;
+
+            err = FF_CUDA_CHECK_DL(old_cu, old_dl,
+                                   old_dl->cuStreamSynchronize(old_dev->stream));
+            if (err >= 0)
+                vulkan_free_cuda_import(dst_int);
+
+            pop_err = FF_CUDA_CHECK_DL(old_cu, old_dl,
+                                       old_dl->cuCtxPopCurrent(&dummy));
+
+            /* Release the old frames context only after the pop: it may hold
+             * the last reference to the CUDA device and its function table. */
+            if (err >= 0) {
+                av_buffer_unref(&dst_int->cuda_fc_ref);
+                err = pop_err;
+            }
+            if (err < 0)
+                return err;
+        }
+    }
+
     if (!dst_int->cuda_fc_ref) {
         size_t offsets[3] = { 0 };
 
@@ -4275,7 +4330,8 @@ static int vulkan_export_to_cuda(AVHWFramesContext *hwfc,
     return 0;
 
 fail:
-    vulkan_free_internal(p, dst_f);
+    vulkan_free_cuda_import(dst_int);
+    av_buffer_unref(&dst_int->cuda_fc_ref);
     return err;
 }
 

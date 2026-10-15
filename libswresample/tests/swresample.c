@@ -22,7 +22,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
-#include "libavutil/mem_internal.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 
 #include "libswresample/swresample.h"
@@ -223,9 +223,9 @@ int main(int argc, char **argv){
     int in_sample_rate, out_sample_rate, ch ,i, flush_count;
     AVChannelLayout in_ch_layout = { 0 }, out_ch_layout = { 0 };
     enum AVSampleFormat in_sample_fmt, out_sample_fmt;
-    LOCAL_ALIGNED(32, uint8_t, array_in,  [SAMPLES*8*8]);
-    LOCAL_ALIGNED(32, uint8_t, array_mid, [SAMPLES*8*8*3]);
-    LOCAL_ALIGNED(32, uint8_t, array_out, [SAMPLES*8*8+100]);
+    uint8_t *array_in = NULL;
+    uint8_t *array_mid = NULL;
+    uint8_t *array_out = NULL;
     uint8_t *ain[SWR_CH_MAX];
     uint8_t *aout[SWR_CH_MAX];
     uint8_t *amid[SWR_CH_MAX];
@@ -234,8 +234,10 @@ int main(int argc, char **argv){
     int num_tests = 10000;
     uint32_t seed = 0;
     uint32_t rand_seed = 0;
-    int remaining_tests[FF_ARRAY_ELEMS(rates) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats)];
-    int max_tests = FF_ARRAY_ELEMS(remaining_tests);
+    const int max_tests = FF_ARRAY_ELEMS(rates) * FF_ARRAY_ELEMS(layouts) *
+                          FF_ARRAY_ELEMS(formats) * FF_ARRAY_ELEMS(layouts) *
+                          FF_ARRAY_ELEMS(formats);
+    int *remaining_tests = NULL;
     int test;
     int specific_test= -1;
     int ret = 0;
@@ -259,6 +261,16 @@ int main(int argc, char **argv){
         if(argc > 2) {
             specific_test = strtol(argv[1], NULL, 0);
         }
+    }
+
+    array_in = av_malloc(SAMPLES * 8 * 8);
+    array_mid = av_malloc(SAMPLES * 8 * 8 * 3);
+    array_out = av_malloc(SAMPLES * 8 * 8 + 100);
+    remaining_tests = av_malloc_array(max_tests, sizeof(*remaining_tests));
+    if (!array_in || !array_mid || !array_out || !remaining_tests) {
+        fprintf(stderr, "Failed to allocate test buffers\n");
+        ret = 1;
+        goto end;
     }
 
     for(i=0; i<max_tests; i++)
@@ -415,5 +427,9 @@ end:
     swr_free(&backw_ctx);
     av_channel_layout_uninit(&in_ch_layout);
     av_channel_layout_uninit(&out_ch_layout);
+    av_free(array_in);
+    av_free(array_mid);
+    av_free(array_out);
+    av_free(remaining_tests);
     return ret;
 }

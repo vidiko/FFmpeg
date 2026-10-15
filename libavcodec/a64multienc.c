@@ -106,7 +106,7 @@ static void render_charset(AVCodecContext *avctx, uint8_t *charset,
     A64Context *c = avctx->priv_data;
     uint8_t row1, row2;
     int charpos, x, y;
-    int a, b;
+    int b;
     uint8_t pix;
     int lowdiff, highdiff;
     int *best_cb = c->mc_best_cb;
@@ -116,12 +116,15 @@ static void render_charset(AVCodecContext *avctx, uint8_t *charset,
     int i;
     int distance;
 
+    av_assert0(c->mc_pal_size >= 4 &&
+               c->mc_pal_size <= FF_ARRAY_ELEMS(c->mc_luma_vals));
+
     /* Generate lookup-tables for dither and index before looping.
      * This code relies on c->mc_luma_vals[c->mc_pal_size - 1] being
      * the maximum of all the mc_luma_vals values and on the minimum
      * being zero; this ensures that dither is properly initialized. */
     i = 0;
-    for (a=0; a < 256; a++) {
+    for (size_t a = 0; a < FF_ARRAY_ELEMS(index1); a++) {
         if(i < c->mc_pal_size -1 && a == c->mc_luma_vals[i + 1]) {
             distance = c->mc_luma_vals[i + 1] - c->mc_luma_vals[i];
             for(b = 0; b <= distance; b++) {
@@ -130,9 +133,22 @@ static void render_charset(AVCodecContext *avctx, uint8_t *charset,
             i++;
         }
         if(i >= c->mc_pal_size - 1) dither[a] = 0;
-        index1[a] = i;
-        index2[a] = FFMIN(i + 1, c->mc_pal_size - 1);
     }
+
+    /* index1 and index2 are constant on each palette interval. Filling them
+     * per interval, rather than one byte per luma value in the loop above,
+     * keeps GCC 14 (seen with 14.4.0 on x86-64) from vectorising the fill
+     * into 16-byte stores that it then reports as overflowing the tables
+     * (-Wstringop-overflow). */
+    for (i = 0; i < c->mc_pal_size - 1; i++) {
+        const int start = i ? c->mc_luma_vals[i] : 0;
+        const int end   = c->mc_luma_vals[i + 1];
+        av_assert0(start < end && end <= FF_ARRAY_ELEMS(index1));
+        memset(index1 + start, i,     end - start);
+        memset(index2 + start, i + 1, end - start);
+    }
+    memset(index1 + c->mc_luma_vals[i], i, FF_ARRAY_ELEMS(index1) - c->mc_luma_vals[i]);
+    memset(index2 + c->mc_luma_vals[i], i, FF_ARRAY_ELEMS(index2) - c->mc_luma_vals[i]);
 
     /* and render charset */
     for (charpos = 0; charpos < CHARSET_CHARS; charpos++) {

@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/avstring.h"
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
@@ -78,6 +79,7 @@ static int nsp_read_header(AVFormatContext *s)
         case MKBETAG('S', 'D', '_', '7'):
         case MKBETAG('S', 'D', '_', '8'):
             av_log(s, AV_LOG_WARNING, "Unsupported chunk!\n");
+            av_fallthrough;
         case MKBETAG('S', 'D', 'A', '_'):
         case MKBETAG('S', 'D', '_', 'A'):
             channels = 1;

@@ -50,6 +50,7 @@
 #include "libavformat/avformat.h"
 #include "libavformat/isom.h"
 #include "libavformat/os_support.h"
+#include "libavutil/avstring.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/mem.h"
@@ -175,12 +176,16 @@ static int write_fragments(struct Tracks *tracks, int start_index,
                            AVIOContext *in, const char *basename,
                            int split, int ismf, const char* output_prefix)
 {
-    char dirname[2048], filename[2048], idxname[2048];
+    char *dirname = NULL, *filename = NULL, *idxname = NULL;
     int i, j, ret = 0, fragment_ret;
     FILE* out = NULL;
 
     if (ismf) {
-        snprintf(idxname, sizeof(idxname), "%s%s.ismf", output_prefix, basename);
+        idxname = av_asprintf("%s%s.ismf", output_prefix, basename);
+        if (!idxname) {
+            ret = AVERROR(ENOMEM);
+            goto fail;
+        }
         out = fopen(idxname, "w");
         if (!out) {
             ret = AVERROR(errno);
@@ -191,7 +196,13 @@ static int write_fragments(struct Tracks *tracks, int start_index,
     for (i = start_index; i < tracks->nb_tracks; i++) {
         struct Track *track = tracks->tracks[i];
         const char *type    = track->is_video ? "video" : "audio";
-        snprintf(dirname, sizeof(dirname), "%sQualityLevels(%d)", output_prefix, track->bitrate);
+        av_freep(&dirname);
+        dirname = av_asprintf("%sQualityLevels(%d)", output_prefix,
+                              track->bitrate);
+        if (!dirname) {
+            ret = AVERROR(ENOMEM);
+            goto fail;
+        }
         if (split) {
             if (mkdir(dirname, 0777) == -1 && errno != EEXIST) {
                 ret = AVERROR(errno);
@@ -200,8 +211,13 @@ static int write_fragments(struct Tracks *tracks, int start_index,
             }
         }
         for (j = 0; j < track->chunks; j++) {
-            snprintf(filename, sizeof(filename), "%s/Fragments(%s=%"PRId64")",
-                     dirname, type, track->offsets[j].time);
+            av_freep(&filename);
+            filename = av_asprintf("%s/Fragments(%s=%"PRId64")",
+                                   dirname, type, track->offsets[j].time);
+            if (!filename) {
+                ret = AVERROR(ENOMEM);
+                goto fail;
+            }
             avio_seek(in, track->offsets[j].offset, SEEK_SET);
             if (ismf)
                 fprintf(out, "%s %"PRId64, filename, avio_tell(in));
@@ -221,6 +237,9 @@ static int write_fragments(struct Tracks *tracks, int start_index,
 fail:
     if (out)
         fclose(out);
+    av_free(filename);
+    av_free(dirname);
+    av_free(idxname);
     return ret;
 }
 
@@ -611,20 +630,26 @@ fail:
     return err;
 }
 
-static void output_server_manifest(struct Tracks *tracks, const char *basename,
-                                   const char *output_prefix,
-                                   const char *path_prefix,
-                                   const char *ismc_prefix)
+static int output_server_manifest(struct Tracks *tracks, const char *basename,
+                                  const char *output_prefix,
+                                  const char *path_prefix,
+                                  const char *ismc_prefix)
 {
-    char filename[1000];
+    char *filename;
     FILE *out;
-    int i;
+    int i, ret = 0;
 
-    snprintf(filename, sizeof(filename), "%s%s.ism", output_prefix, basename);
+    filename = av_asprintf("%s%s.ism", output_prefix, basename);
+    if (!filename) {
+        fprintf(stderr, "Unable to allocate server manifest filename\n");
+        return AVERROR(ENOMEM);
+    }
     out = fopen(filename, "w");
     if (!out) {
+        ret = AVERROR(errno);
         perror(filename);
-        return;
+        av_free(filename);
+        return ret;
     }
     fprintf(out, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     fprintf(out, "<smil xmlns=\"http://www.w3.org/2001/SMIL20/Language\">\n");
@@ -646,7 +671,14 @@ static void output_server_manifest(struct Tracks *tracks, const char *basename,
     fprintf(out, "\t\t</switch>\n");
     fprintf(out, "\t</body>\n");
     fprintf(out, "</smil>\n");
-    fclose(out);
+    if (ferror(out))
+        ret = AVERROR(EIO);
+    if (fclose(out) && ret >= 0)
+        ret = AVERROR(errno ? errno : EIO);
+    if (ret < 0)
+        fprintf(stderr, "Unable to write %s: %s\n", filename, av_err2str(ret));
+    av_free(filename);
+    return ret;
 }
 
 static void print_track_chunks(FILE *out, struct Tracks *tracks, int main,
@@ -684,21 +716,27 @@ static void print_track_chunks(FILE *out, struct Tracks *tracks, int main,
     }
 }
 
-static void output_client_manifest(struct Tracks *tracks, const char *basename,
-                                   const char *output_prefix, int split)
+static int output_client_manifest(struct Tracks *tracks, const char *basename,
+                                  const char *output_prefix, int split)
 {
-    char filename[1000];
+    char *filename;
     FILE *out;
-    int i, j;
+    int i, j, ret = 0;
 
     if (split)
-        snprintf(filename, sizeof(filename), "%sManifest", output_prefix);
+        filename = av_asprintf("%sManifest", output_prefix);
     else
-        snprintf(filename, sizeof(filename), "%s%s.ismc", output_prefix, basename);
+        filename = av_asprintf("%s%s.ismc", output_prefix, basename);
+    if (!filename) {
+        fprintf(stderr, "Unable to allocate client manifest filename\n");
+        return AVERROR(ENOMEM);
+    }
     out = fopen(filename, "w");
     if (!out) {
+        ret = AVERROR(errno);
         perror(filename);
-        return;
+        av_free(filename);
+        return ret;
     }
     fprintf(out, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     fprintf(out, "<SmoothStreamingMedia MajorVersion=\"2\" MinorVersion=\"0\" "
@@ -764,7 +802,14 @@ static void output_client_manifest(struct Tracks *tracks, const char *basename,
         fprintf(out, "\t</StreamIndex>\n");
     }
     fprintf(out, "</SmoothStreamingMedia>\n");
-    fclose(out);
+    if (ferror(out))
+        ret = AVERROR(EIO);
+    if (fclose(out) && ret >= 0)
+        ret = AVERROR(errno ? errno : EIO);
+    if (ret < 0)
+        fprintf(stderr, "Unable to write %s: %s\n", filename, av_err2str(ret));
+    av_free(filename);
+    return ret;
 }
 
 static void clean_tracks(struct Tracks *tracks)
@@ -784,8 +829,8 @@ int main(int argc, char **argv)
     const char *basename = NULL;
     const char *path_prefix = "", *ismc_prefix = "";
     const char *output_prefix = "";
-    char output_prefix_buf[2048];
-    int split = 0, ismf = 0, i;
+    char *output_prefix_buf = NULL;
+    int split = 0, ismf = 0, i, ret = 0;
     struct Tracks tracks = { 0, .video_track = -1, .audio_track = -1 };
 
     for (i = 1; i < argc; i++) {
@@ -799,11 +844,19 @@ int main(int argc, char **argv)
             ismc_prefix = argv[i + 1];
             i++;
         } else if (!strcmp(argv[i], "-output")) {
+            size_t output_prefix_len;
+
+            av_freep(&output_prefix_buf);
             output_prefix = argv[i + 1];
             i++;
-            if (output_prefix[strlen(output_prefix) - 1] != '/') {
-                snprintf(output_prefix_buf, sizeof(output_prefix_buf),
-                         "%s/", output_prefix);
+            output_prefix_len = strlen(output_prefix);
+            if (output_prefix_len && output_prefix[output_prefix_len - 1] != '/') {
+                output_prefix_buf = av_asprintf("%s/", output_prefix);
+                if (!output_prefix_buf) {
+                    fprintf(stderr, "Unable to allocate output path prefix\n");
+                    ret = 1;
+                    goto end;
+                }
                 output_prefix = output_prefix_buf;
             }
         } else if (!strcmp(argv[i], "-split")) {
@@ -811,24 +864,36 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "-ismf")) {
             ismf = 1;
         } else if (argv[i][0] == '-') {
-            return usage(argv[0], 1);
+            ret = usage(argv[0], 1);
+            goto end;
         } else {
             if (!basename)
                 ismf = 0;
             if (handle_file(&tracks, argv[i], split, ismf,
-                            basename, output_prefix))
-                return 1;
+                            basename, output_prefix)) {
+                ret = 1;
+                goto end;
+            }
         }
     }
-    if (!tracks.nb_tracks || (!basename && !split))
-        return usage(argv[0], 1);
+    if (!tracks.nb_tracks || (!basename && !split)) {
+        ret = usage(argv[0], 1);
+        goto end;
+    }
 
-    if (!split)
-        output_server_manifest(&tracks, basename, output_prefix,
-                               path_prefix, ismc_prefix);
-    output_client_manifest(&tracks, basename, output_prefix, split);
+    if (!split && output_server_manifest(&tracks, basename, output_prefix,
+                                         path_prefix, ismc_prefix) < 0) {
+        ret = 1;
+        goto end;
+    }
+    if (output_client_manifest(&tracks, basename, output_prefix, split) < 0) {
+        ret = 1;
+        goto end;
+    }
 
+end:
     clean_tracks(&tracks);
+    av_free(output_prefix_buf);
 
-    return 0;
+    return ret;
 }

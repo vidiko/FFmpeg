@@ -426,7 +426,11 @@ static void add_level(VLC_MULTI_ELEM *table, const int is16bit,
                       const int minlen, const int max,
                       unsigned* levelcnt, VLC_MULTI_ELEM info)
 {
-    int max_symbols = VLC_MULTI_MAX_SYMBOLS >> is16bit;
+    int max_symbols;
+
+    av_assert0(is16bit == 0 || is16bit == 1);
+    max_symbols = VLC_MULTI_MAX_SYMBOLS >> is16bit;
+    av_assert0((unsigned)curlevel < max_symbols);
     for (int i = num-1; i >= max; i--) {
         for (int j = 0; j < 2; j++) {
             int newlimit, sym;
@@ -440,8 +444,13 @@ static void add_level(VLC_MULTI_ELEM *table, const int is16bit,
             code = curcode + (buf[t].code >> curlen);
             newlimit = curlimit - l;
             l  += curlen;
-            if (is16bit) info.val16[curlevel] = sym;
-            else info.val8[curlevel] = sym&0xFF;
+            if (is16bit) {
+                av_assert0((unsigned)curlevel < FF_ARRAY_ELEMS(info.val16));
+                info.val16[curlevel] = sym;
+            } else {
+                av_assert0((unsigned)curlevel < FF_ARRAY_ELEMS(info.val8));
+                info.val8[curlevel] = sym & 0xFF;
+            }
 
             if (curlevel) { // let's not add single entries
                 uint32_t val = code >> (32 - numbits);

@@ -434,7 +434,8 @@ static void mc_scaled(VVCLocalContext *lc, int16_t *dst, const VVCRefPic *refp, 
 
     scaled_ref_pos_and_step(lc, refp, mv, x_off, y_off, c_idx, &x, &y, &dx, &dy);
     emulated_edge_scaled(lc, &src, &src_stride, &src_height, refp->ref, x, y, dx, dy, block_w, block_h, is_chroma);
-    fc->vvcdsp.inter.put_scaled[is_chroma][idx](dst, src, src_stride, src_height, x, y, dx, dy, block_h, hf, vf, block_w);
+    fc->vvcdsp.inter.put_scaled[is_chroma][idx](lc->pred.scaled_tmp, dst, src, src_stride,
+        src_height, x, y, dx, dy, block_h, hf, vf, block_w);
 }
 
 static void mc_uni_scaled(VVCLocalContext *lc, uint8_t *dst, const ptrdiff_t dst_stride, const VVCRefPic *refp,
@@ -457,11 +458,11 @@ static void mc_uni_scaled(VVCLocalContext *lc, uint8_t *dst, const ptrdiff_t dst
     emulated_edge_scaled(lc, &src, &src_stride, &src_height, refp->ref, x, y, dx, dy, block_w, block_h, is_chroma);
 
     if (derive_weight_uni(&denom, &wx, &ox, lc, mvf, c_idx)) {
-        fc->vvcdsp.inter.put_uni_w_scaled[is_chroma][idx](dst, dst_stride, src, src_stride, src_height,
-            x, y, dx, dy, block_h, denom, wx, ox, hf, vf, block_w);
+        fc->vvcdsp.inter.put_uni_w_scaled[is_chroma][idx](lc->pred.scaled_tmp, dst, dst_stride,
+            src, src_stride, src_height, x, y, dx, dy, block_h, denom, wx, ox, hf, vf, block_w);
     } else {
-        fc->vvcdsp.inter.put_uni_scaled[is_chroma][idx](dst, dst_stride, src, src_stride, src_height,
-            x, y, dx, dy, block_h, hf, vf, block_w);
+        fc->vvcdsp.inter.put_uni_scaled[is_chroma][idx](lc->pred.scaled_tmp, dst, dst_stride,
+            src, src_stride, src_height, x, y, dx, dy, block_h, hf, vf, block_w);
     }
 }
 

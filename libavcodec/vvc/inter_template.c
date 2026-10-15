@@ -24,12 +24,12 @@
 #include "libavutil/imgutils.h"
 
 #define TMP_STRIDE EDGE_EMU_BUFFER_STRIDE
-static void av_always_inline FUNC(put_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void av_always_inline FUNC(put_scaled)(int16_t *restrict tmp_array,
+    uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *const _src, ptrdiff_t _src_stride, const int src_height,
     const int _x, const int _y, const int dx, const int dy,
     const int height, const int8_t *hf, const int8_t *vf, const int width, const int is_uni, const int is_chroma)
 {
-    int16_t tmp_array[TMP_STRIDE * MAX_PB_SIZE];
     int16_t *tmp                 = tmp_array;
     pixel *dst                   = (pixel*)_dst;
     int16_t *dst16               = (int16_t*)_dst;
@@ -81,44 +81,44 @@ static void av_always_inline FUNC(put_scaled)(uint8_t *_dst, const ptrdiff_t _ds
     }
 }
 
-static void FUNC(put_luma_scaled)(int16_t *_dst,
+static void FUNC(put_luma_scaled)(int16_t *tmp, int16_t *_dst,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_scaled)((uint8_t *)_dst, MAX_PB_SIZE * sizeof(pixel), _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 0, 0);
+    FUNC(put_scaled)(tmp, (uint8_t *)_dst, MAX_PB_SIZE * sizeof(pixel), _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 0, 0);
 }
 
-static void FUNC(put_chroma_scaled)(int16_t *_dst,
+static void FUNC(put_chroma_scaled)(int16_t *tmp, int16_t *_dst,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_scaled)((uint8_t *)_dst, MAX_PB_SIZE * sizeof(pixel), _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 0, 1);
+    FUNC(put_scaled)(tmp, (uint8_t *)_dst, MAX_PB_SIZE * sizeof(pixel), _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 0, 1);
 }
 
-static void FUNC(put_uni_luma_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void FUNC(put_uni_luma_scaled)(int16_t *tmp, uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_scaled)(_dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 1, 0);
+    FUNC(put_scaled)(tmp, _dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 1, 0);
 }
 
-static void FUNC(put_uni_chroma_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void FUNC(put_uni_chroma_scaled)(int16_t *tmp, uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_scaled)(_dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 1, 1);
+    FUNC(put_scaled)(tmp, _dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, height, hf, vf, width, 1, 1);
 }
 
-static void av_always_inline FUNC(put_uni_w_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void av_always_inline FUNC(put_uni_w_scaled)(int16_t *restrict tmp_array,
+    uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *const _src, ptrdiff_t _src_stride, const int src_height,
     const int _x, const int _y, const int dx, const int dy, const int denom, const int wx, const int _ox,
     const int height, const int8_t *hf, const int8_t *vf, const int width, const int is_chroma)
 {
-    int16_t tmp_array[TMP_STRIDE * MAX_PB_SIZE];
     int16_t *tmp                 = tmp_array;
     pixel *dst                   = (pixel*)_dst;
     const ptrdiff_t dst_stride   = _dst_stride / sizeof(pixel);
@@ -164,20 +164,20 @@ static void av_always_inline FUNC(put_uni_w_scaled)(uint8_t *_dst, const ptrdiff
     }
 }
 
-static void FUNC(put_uni_luma_w_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void FUNC(put_uni_luma_w_scaled)(int16_t *tmp, uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy, const int denom, const int wx, const int ox,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_uni_w_scaled)(_dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, denom, wx, ox, height, hf, vf, width, 0);
+    FUNC(put_uni_w_scaled)(tmp, _dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy, denom, wx, ox, height, hf, vf, width, 0);
 }
 
-static void FUNC(put_uni_chroma_w_scaled)(uint8_t *_dst, const ptrdiff_t _dst_stride,
+static void FUNC(put_uni_chroma_w_scaled)(int16_t *tmp, uint8_t *_dst, const ptrdiff_t _dst_stride,
     const uint8_t *_src, ptrdiff_t _src_stride, const int src_height,
     const int x, const int y, const int dx, const int dy, const int denom, const int wx, const int ox,
     const int height, const int8_t *hf, const int8_t *vf, const int width)
 {
-    FUNC(put_uni_w_scaled)(_dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy,  denom, wx, ox, height, hf, vf, width, 1);
+    FUNC(put_uni_w_scaled)(tmp, _dst, _dst_stride, _src, _src_stride, src_height, x, y, dx, dy,  denom, wx, ox, height, hf, vf, width, 1);
 }
 
 #undef TMP_STRIDE

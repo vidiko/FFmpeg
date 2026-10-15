@@ -142,6 +142,11 @@ struct Program {
     int pmt_found;
 };
 
+struct ProgramSnapshot {
+    unsigned int nb_streams;
+    struct Stream streams[MAX_STREAMS_PER_PROGRAM];
+};
+
 struct MpegTSContext {
     const AVClass *class;
     /* user data */
@@ -330,6 +335,12 @@ static void clear_program(struct Program *p)
     p->nb_stream_groups = 0;
     memset(p->stream_groups, 0, sizeof(p->stream_groups));
     p->pmt_found = 0;
+}
+
+static void swap_programs(struct Program *a, struct Program *b)
+{
+    for (size_t i = 0; i < sizeof(*a); i++)
+        FFSWAP(uint8_t, ((uint8_t *)a)[i], ((uint8_t *)b)[i]);
 }
 
 static void clear_programs(MpegTSContext *ts)
@@ -2545,7 +2556,8 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
 }
 
 static AVStream *find_matching_stream(MpegTSContext *ts, int pid, unsigned int programid,
-                                      int stream_identifier, int pmt_stream_idx, struct Program *p)
+                                      int stream_identifier, int pmt_stream_idx,
+                                      const struct ProgramSnapshot *p)
 {
     AVFormatContext *s = ts->stream;
     AVStream *found = NULL;
@@ -2741,7 +2753,7 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
 {
     MpegTSContext *ts = filter->u.section_filter.opaque;
     MpegTSSectionFilter *tssf = &filter->u.section_filter;
-    struct Program old_program;
+    struct ProgramSnapshot old_program = { 0 };
     SectionHeader h1, *h = &h1;
     PESContext *pes;
     AVStream *st;
@@ -2777,15 +2789,15 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
         return;
 
     prg = get_program(ts, h->id);
-    if (prg)
-        old_program = *prg;
-    else
-        clear_program(&old_program);
-
     if (ts->skip_unknown_pmt && !prg)
         return;
     if (prg && prg->nb_pids && prg->pids[0] != ts->current_pid)
         return;
+
+    if (prg) {
+        old_program.nb_streams = prg->nb_streams;
+        memcpy(old_program.streams, prg->streams, sizeof(old_program.streams));
+    }
     if (!ts->skip_clear)
         clear_avprogram(ts, h->id);
     clear_program(prg);
@@ -3033,7 +3045,7 @@ static void pat_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
                     clear_program(prg);
                 add_pid_to_program(prg, pmt_pid);
                 if (prg_idx > nb_prg)
-                    FFSWAP(struct Program, ts->prg[nb_prg], ts->prg[prg_idx]);
+                    swap_programs(&ts->prg[nb_prg], &ts->prg[prg_idx]);
                 if (prg_idx >= nb_prg)
                     nb_prg++;
             } else

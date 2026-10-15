@@ -22,6 +22,7 @@
  * @todo switch to dualinput
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/opt.h"
 
 #include "filters.h"
@@ -152,6 +153,8 @@ static float compare(const AVFrame *haystack, const AVFrame *obj, int offx, int 
 static float search(FOCContext *foc, int pass, int maxpass, int xmin, int xmax, int ymin, int ymax, int *best_x, int *best_y, float best_score)
 {
     int x, y;
+
+    av_assert0((unsigned)pass < MAX_MIPMAPS);
 
     if (pass + 1 <= maxpass) {
         int sub_x, sub_y;

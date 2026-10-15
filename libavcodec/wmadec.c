@@ -457,7 +457,10 @@ static int wma_decode_block(WMACodecContext *s)
     AVTXContext *mdct;
     av_tx_fn mdct_fn;
 
-    av_assert2(channels <= MAX_CHANNELS);
+    if (channels < 1 || channels > MAX_CHANNELS) {
+        av_log(s->avctx, AV_LOG_ERROR, "Invalid channel count %d\n", channels);
+        return AVERROR_INVALIDDATA;
+    }
 
 #ifdef TRACE
     ff_tlog(s->avctx, "***decode_block: %d:%d\n",

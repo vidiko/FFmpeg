@@ -16,8 +16,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #include "libavcodec/mathops.h"
@@ -144,11 +146,15 @@ static void check_pix_norm1(MpegvideoEncDSPContext *c)
 static void check_draw_edges(MpegvideoEncDSPContext *c)
 {
     static const int input_sizes[] = {8, 128, 1080, MAX_LINE_SIZE, -MAX_LINE_SIZE};
-    LOCAL_ALIGNED_16(uint8_t, buf0, [BUFSIZE]);
-    LOCAL_ALIGNED_16(uint8_t, buf1, [BUFSIZE]);
+    struct DrawEdgesBuffers {
+        uint8_t buf0[BUFSIZE];
+        uint8_t buf1[BUFSIZE];
+    } *buffers = av_malloc(sizeof(*buffers));
 
     declare_func(void, uint8_t *buf, ptrdiff_t wrap, int width, int height,
                        int w, int h, int sides);
+
+    av_assert0(buffers);
 
     for (int isi = 0; isi < FF_ARRAY_ELEMS(input_sizes); isi++) {
         int input_size = input_sizes[isi];
@@ -158,8 +164,8 @@ static void check_draw_edges(MpegvideoEncDSPContext *c)
         ptrdiff_t linesize = EDGE_WIDTH + width + EDGE_WIDTH;
         /* calculate height based on specified width to use the entire buffer. */
         int height = (BUFSIZE / linesize) - (2 * EDGE_WIDTH);
-        uint8_t *dst0 = buf0 + EDGE_WIDTH * linesize + EDGE_WIDTH;
-        uint8_t *dst1 = buf1 + EDGE_WIDTH * linesize + EDGE_WIDTH;
+        uint8_t *dst0 = buffers->buf0 + EDGE_WIDTH * linesize + EDGE_WIDTH;
+        uint8_t *dst1 = buffers->buf1 + EDGE_WIDTH * linesize + EDGE_WIDTH;
 
         if (negstride) {
             dst0 += (height - 1) * linesize;
@@ -170,16 +176,18 @@ static void check_draw_edges(MpegvideoEncDSPContext *c)
         for (int shift = 0; shift < 3; shift++) {
             int edge = EDGE_WIDTH >> shift;
             if (check_func(c->draw_edges, "draw_edges_%d_%d_%d%s", width, height, edge, negstride_str)) {
-                randomize_buffers(buf0, BUFSIZE);
-                memcpy(buf1, buf0, BUFSIZE);
+                randomize_buffers(buffers->buf0, BUFSIZE);
+                memcpy(buffers->buf1, buffers->buf0, BUFSIZE);
                 call_ref(dst0, linesize, width, height, edge, edge, EDGE_BOTTOM | EDGE_TOP);
                 call_new(dst1, linesize, width, height, edge, edge, EDGE_BOTTOM | EDGE_TOP);
-                if (memcmp(buf0, buf1, BUFSIZE))
+                if (memcmp(buffers->buf0, buffers->buf1, BUFSIZE))
                     fail();
                 bench_new(dst1, linesize, width, height, edge, edge, EDGE_BOTTOM | EDGE_TOP);
             }
         }
     }
+
+    av_free(buffers);
 }
 
 #undef NUM_LINES

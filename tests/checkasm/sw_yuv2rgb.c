@@ -18,9 +18,11 @@
 
 #include <string.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 
@@ -116,22 +118,48 @@ static void check_yuv2rgb(int src_pix_fmt)
     declare_func(int, SwsInternal *c, const uint8_t *const src[],
                       const int srcStride[], int srcSliceY, int srcSliceH,
                       uint8_t *const dst[], const int dstStride[]);
+    struct Yuv2RgbBuffers {
+        uint8_t src_y[(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES];
+        uint8_t src_u[(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES];
+        uint8_t src_v[(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES];
+        uint8_t src_a[(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES];
+        uint8_t dst0_0[NUM_LINES * MAX_LINE_SIZE * 6];
+        uint8_t dst0_1[NUM_LINES * MAX_LINE_SIZE];
+        uint8_t dst0_2[NUM_LINES * MAX_LINE_SIZE];
+        uint8_t dst1_0[NUM_LINES * MAX_LINE_SIZE * 6];
+        uint8_t dst1_1[NUM_LINES * MAX_LINE_SIZE];
+        uint8_t dst1_2[NUM_LINES * MAX_LINE_SIZE];
+    } *buffers = av_malloc(sizeof(*buffers));
+    uint8_t *src_y, *src_u, *src_v, *src_a;
+    uint8_t *dst0_0, *dst0_1, *dst0_2;
+    uint8_t *dst1_0, *dst1_1, *dst1_2;
+    const uint8_t *src[4];
+    uint8_t *dst0[4];
+    uint8_t *dst1[4];
 
-    LOCAL_ALIGNED_8(uint8_t, src_y, [(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES]);
-    LOCAL_ALIGNED_8(uint8_t, src_u, [(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES]);
-    LOCAL_ALIGNED_8(uint8_t, src_v, [(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES]);
-    LOCAL_ALIGNED_8(uint8_t, src_a, [(MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES]);
-    const uint8_t *src[4] = { src_y, src_u, src_v, src_a };
-
-    LOCAL_ALIGNED_8(uint8_t, dst0_0, [NUM_LINES * MAX_LINE_SIZE * 6]);
-    LOCAL_ALIGNED_8(uint8_t, dst0_1, [NUM_LINES * MAX_LINE_SIZE]);
-    LOCAL_ALIGNED_8(uint8_t, dst0_2, [NUM_LINES * MAX_LINE_SIZE]);
-    uint8_t *dst0[4] = { dst0_0, dst0_1, dst0_2 };
-
-    LOCAL_ALIGNED_8(uint8_t, dst1_0, [NUM_LINES * MAX_LINE_SIZE * 6]);
-    LOCAL_ALIGNED_8(uint8_t, dst1_1, [NUM_LINES * MAX_LINE_SIZE]);
-    LOCAL_ALIGNED_8(uint8_t, dst1_2, [NUM_LINES * MAX_LINE_SIZE]);
-    uint8_t *dst1[4] = { dst1_0, dst1_1, dst1_2 };
+    av_assert0(buffers);
+    src_y = buffers->src_y;
+    src_u = buffers->src_u;
+    src_v = buffers->src_v;
+    src_a = buffers->src_a;
+    dst0_0 = buffers->dst0_0;
+    dst0_1 = buffers->dst0_1;
+    dst0_2 = buffers->dst0_2;
+    dst1_0 = buffers->dst1_0;
+    dst1_1 = buffers->dst1_1;
+    dst1_2 = buffers->dst1_2;
+    src[0] = src_y;
+    src[1] = src_u;
+    src[2] = src_v;
+    src[3] = src_a;
+    dst0[0] = dst0_0;
+    dst0[1] = dst0_1;
+    dst0[2] = dst0_2;
+    dst0[3] = NULL;
+    dst1[0] = dst1_0;
+    dst1[1] = dst1_1;
+    dst1[2] = dst1_2;
+    dst1[3] = NULL;
 
     randomize_buffers(src_y, (MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES);
     randomize_buffers(src_u, (MAX_LINE_SIZE + SRC_STRIDE_PAD) * NUM_LINES);
@@ -242,6 +270,8 @@ static void check_yuv2rgb(int src_pix_fmt)
             sws_freeContext(sws);
         }
     }
+
+    av_free(buffers);
 }
 
 #undef NUM_LINES

@@ -20,7 +20,9 @@
 
 #include <string.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
@@ -53,21 +55,23 @@ static void check_xyz12Torgb48le(void)
 
     const AVPixFmtDescriptor *src_desc = av_pix_fmt_desc_get(src_pix_fmt);
     const AVPixFmtDescriptor *dst_desc = av_pix_fmt_desc_get(dst_pix_fmt);
-
-    LOCAL_ALIGNED_8(uint16_t, src,     [3 * MAX_LINE_SIZE * NUM_LINES]);
-    LOCAL_ALIGNED_8(uint16_t, dst_ref, [3 * MAX_LINE_SIZE * NUM_LINES]);
-    LOCAL_ALIGNED_8(uint16_t, dst_new, [3 * MAX_LINE_SIZE * NUM_LINES]);
+    struct Xyz12ToRgb48Buffers {
+        uint16_t src[3 * MAX_LINE_SIZE * NUM_LINES];
+        uint16_t dst_ref[3 * MAX_LINE_SIZE * NUM_LINES];
+        uint16_t dst_new[3 * MAX_LINE_SIZE * NUM_LINES];
+    } *buffers = av_malloc(sizeof(*buffers));
 
     declare_func(void, const SwsInternal *, uint8_t *, int, const uint8_t *,
                  int, int, int);
 
     SwsInternal c;
+    av_assert0(buffers);
     memset(&c, 0, sizeof(c));
     c.opts.src_format = src_pix_fmt;
     ff_sws_init_xyzdsp(&c);
     ff_sws_fill_st428_tables(&c);
 
-    randomize_buffers(src, 3 * MAX_LINE_SIZE * NUM_LINES);
+    randomize_buffers(buffers->src, 3 * MAX_LINE_SIZE * NUM_LINES);
 
     for (int height = 1; height <= NUM_LINES; height++) {
         for (int isi = 0; isi < FF_ARRAY_ELEMS(input_sizes); isi++) {
@@ -75,27 +79,30 @@ static void check_xyz12Torgb48le(void)
 
             if (check_func(c.xyz12Torgb48, "%s_%s_%dx%d", src_desc->name,
                            dst_desc->name, width, height)) {
-                memset(dst_ref, 0xFE,
+                memset(buffers->dst_ref, 0xFE,
                        3 * sizeof(uint16_t) * MAX_LINE_SIZE * NUM_LINES);
-                memset(dst_new, 0xFE,
+                memset(buffers->dst_new, 0xFE,
                        3 * sizeof(uint16_t) * MAX_LINE_SIZE * NUM_LINES);
 
-                call_ref(&c, (uint8_t *)dst_ref, dst_stride,
-                         (const uint8_t *)src, src_stride, width, height);
-                call_new(&c, (uint8_t *)dst_new, dst_stride,
-                         (const uint8_t *)src, src_stride, width, height);
+                call_ref(&c, (uint8_t *)buffers->dst_ref, dst_stride,
+                         (const uint8_t *)buffers->src, src_stride, width, height);
+                call_new(&c, (uint8_t *)buffers->dst_new, dst_stride,
+                         (const uint8_t *)buffers->src, src_stride, width, height);
 
-                checkasm_check(uint16_t, dst_ref, dst_stride, dst_new,
+                checkasm_check(uint16_t, buffers->dst_ref, dst_stride,
+                               buffers->dst_new,
                                dst_stride, width, height, "dst_rgb");
 
                 if (!(width & 3) && height == NUM_LINES) {
-                    bench_new(&c, (uint8_t *)dst_new,
-                              dst_stride, (const uint8_t *)src, src_stride,
+                    bench_new(&c, (uint8_t *)buffers->dst_new,
+                              dst_stride, (const uint8_t *)buffers->src, src_stride,
                               width, height);
                 }
             }
         }
     }
+
+    av_free(buffers);
 }
 
 #undef NUM_LINES

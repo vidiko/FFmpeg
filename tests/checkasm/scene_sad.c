@@ -18,6 +18,8 @@
 
 #include "checkasm.h"
 #include "libavfilter/scene_sad.h"
+#include "libavutil/avassert.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #define WIDTH  256
@@ -32,10 +34,8 @@
             tmp_buf[j] = rnd() & mask;            \
     } while (0)
 
-static void check_scene_sad(int depth)
+static void check_scene_sad(int depth, uint8_t *src1, uint8_t *src2)
 {
-    LOCAL_ALIGNED_32(uint8_t, src1, [WIDTH * HEIGHT * 2]);
-    LOCAL_ALIGNED_32(uint8_t, src2, [WIDTH * HEIGHT * 2]);
     declare_func(void, const uint8_t *src1, ptrdiff_t stride1,
                        const uint8_t *src2, ptrdiff_t stride2,
                        ptrdiff_t width, ptrdiff_t height, uint64_t *sum);
@@ -66,8 +66,17 @@ static void check_scene_sad(int depth)
 void checkasm_check_scene_sad(void)
 {
     const int depths[] = { 8, 10, 12, 14, 15, 16 };
+    uint8_t *buffers = av_malloc(2 * WIDTH * HEIGHT * 2);
+    uint8_t *src1 = buffers;
+    uint8_t *src2;
+
+    av_assert0(buffers);
+    src2 = buffers + WIDTH * HEIGHT * 2;
+
     for (int i = 0; i < FF_ARRAY_ELEMS(depths); i++) {
-        check_scene_sad(depths[i]);
+        check_scene_sad(depths[i], src1, src2);
         report("scene_sad%d", depths[i]);
     }
+
+    av_free(buffers);
 }

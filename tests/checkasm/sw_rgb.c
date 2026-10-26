@@ -19,8 +19,10 @@
 
 #include <string.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 
@@ -75,20 +77,35 @@ static void check_shuffle_bytes(void * func, const char * report)
 
 static void check_interleaved_to_planar(void *func, const char *report, int odd_tail)
 {
+    struct UyvyTo422pBuffers {
+        uint8_t src0[MAX_STRIDE * MAX_HEIGHT * 2];
+        uint8_t src1[MAX_STRIDE * MAX_HEIGHT * 2];
+        uint8_t dst_y_0[MAX_STRIDE * MAX_HEIGHT];
+        uint8_t dst_y_1[MAX_STRIDE * MAX_HEIGHT];
+        uint8_t dst_u_0[(MAX_STRIDE / 2) * MAX_HEIGHT];
+        uint8_t dst_u_1[(MAX_STRIDE / 2) * MAX_HEIGHT];
+        uint8_t dst_v_0[(MAX_STRIDE / 2) * MAX_HEIGHT];
+        uint8_t dst_v_1[(MAX_STRIDE / 2) * MAX_HEIGHT];
+    } *buffers = av_malloc(sizeof(*buffers));
+    uint8_t *src0, *src1;
+    uint8_t *dst_y_0, *dst_y_1;
+    uint8_t *dst_u_0, *dst_u_1;
+    uint8_t *dst_v_0, *dst_v_1;
     int i;
-
-    LOCAL_ALIGNED_32(uint8_t, src0, [MAX_STRIDE * MAX_HEIGHT * 2]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [MAX_STRIDE * MAX_HEIGHT * 2]);
-    LOCAL_ALIGNED_32(uint8_t, dst_y_0, [MAX_STRIDE * MAX_HEIGHT]);
-    LOCAL_ALIGNED_32(uint8_t, dst_y_1, [MAX_STRIDE * MAX_HEIGHT]);
-    LOCAL_ALIGNED_32(uint8_t, dst_u_0, [(MAX_STRIDE/2) * MAX_HEIGHT]);
-    LOCAL_ALIGNED_32(uint8_t, dst_u_1, [(MAX_STRIDE/2) * MAX_HEIGHT]);
-    LOCAL_ALIGNED_32(uint8_t, dst_v_0, [(MAX_STRIDE/2) * MAX_HEIGHT]);
-    LOCAL_ALIGNED_32(uint8_t, dst_v_1, [(MAX_STRIDE/2) * MAX_HEIGHT]);
 
     declare_func(void, uint8_t *ydst, uint8_t *udst, uint8_t *vdst,
                  const uint8_t *src, int width, int height,
                  int lumStride, int chromStride, int srcStride);
+
+    av_assert0(buffers);
+    src0 = buffers->src0;
+    src1 = buffers->src1;
+    dst_y_0 = buffers->dst_y_0;
+    dst_y_1 = buffers->dst_y_1;
+    dst_u_0 = buffers->dst_u_0;
+    dst_u_1 = buffers->dst_u_1;
+    dst_v_0 = buffers->dst_v_0;
+    dst_v_1 = buffers->dst_v_1;
 
     randomize_buffers(src0, MAX_STRIDE * MAX_HEIGHT * 2);
     memcpy(src1, src0, MAX_STRIDE * MAX_HEIGHT * 2);
@@ -117,6 +134,8 @@ static void check_interleaved_to_planar(void *func, const char *report, int odd_
         bench_new(dst_y_1, dst_u_1, dst_v_1, src1, planes[5].w, planes[5].h,
                   MAX_STRIDE, MAX_STRIDE / 2, 2 * planes[5].w);
     }
+
+    av_free(buffers);
 }
 
 #define NUM_LINES 5
@@ -717,17 +736,27 @@ static void check_yuv2packedX(void)
     const int16_t *chru[LARGEST_FILTER];
     const int16_t *chrv[LARGEST_FILTER];
     const int16_t *alpha[LARGEST_FILTER];
+    int32_t *src_y, *src_u, *src_v, *src_a;
+    uint8_t *dst0, *dst1;
+    struct Yuv2PackedXBuffers {
+        int32_t src_y[LARGEST_FILTER * INPUT_SIZE];
+        int32_t src_u[LARGEST_FILTER * INPUT_SIZE];
+        int32_t src_v[LARGEST_FILTER * INPUT_SIZE];
+        int32_t src_a[LARGEST_FILTER * INPUT_SIZE];
+        uint8_t dst0[INPUT_SIZE * sizeof(int32_t[4])];
+        uint8_t dst1[INPUT_SIZE * sizeof(int32_t[4])];
+    } *buffers = av_malloc(sizeof(*buffers));
 
     LOCAL_ALIGNED_8(int16_t, luma_filter, [LARGEST_FILTER]);
     LOCAL_ALIGNED_8(int16_t, chr_filter, [LARGEST_FILTER]);
 
-    LOCAL_ALIGNED_8(int32_t, src_y, [LARGEST_FILTER * INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_u, [LARGEST_FILTER * INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_v, [LARGEST_FILTER * INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_a, [LARGEST_FILTER * INPUT_SIZE]);
-
-    LOCAL_ALIGNED_8(uint8_t, dst0, [INPUT_SIZE * sizeof(int32_t[4])]);
-    LOCAL_ALIGNED_8(uint8_t, dst1, [INPUT_SIZE * sizeof(int32_t[4])]);
+    av_assert0(buffers);
+    src_y = buffers->src_y;
+    src_u = buffers->src_u;
+    src_v = buffers->src_v;
+    src_a = buffers->src_a;
+    dst0 = buffers->dst0;
+    dst1 = buffers->dst1;
 
     randomize_buffers((uint8_t*)src_y, LARGEST_FILTER * INPUT_SIZE * sizeof(int32_t));
     randomize_buffers((uint8_t*)src_u, LARGEST_FILTER * INPUT_SIZE * sizeof(int32_t));
@@ -801,6 +830,8 @@ static void check_yuv2packedX(void)
 
         sws_freeContext(sws);
     }
+
+    av_free(buffers);
 }
 
 #undef INPUT_SIZE
@@ -809,6 +840,18 @@ static void check_yuv2packedX(void)
 void checkasm_check_sw_rgb(void)
 {
     SwsContext *sws;
+#define RGB_CONVERSION_BUF_SIZE FFALIGN(MAX_LINE_SIZE * 4 + 8, 32)
+    uint8_t *conversion_buffers = av_malloc(4 * RGB_CONVERSION_BUF_SIZE);
+    uint8_t *conversion_src0;
+    uint8_t *conversion_src1;
+    uint8_t *conversion_dst0;
+    uint8_t *conversion_dst1;
+
+    av_assert0(conversion_buffers);
+    conversion_src0 = conversion_buffers;
+    conversion_src1 = conversion_src0 + RGB_CONVERSION_BUF_SIZE;
+    conversion_dst0 = conversion_src1 + RGB_CONVERSION_BUF_SIZE;
+    conversion_dst1 = conversion_dst0 + RGB_CONVERSION_BUF_SIZE;
 
     ff_sws_rgb2rgb_init();
 
@@ -845,10 +888,10 @@ void checkasm_check_sw_rgb(void)
         static const int rgb24_width[] = {3, 12, 24, 36, 48, 126, 1920 * 3};
         int i;
 #define RGB24_BENCH_WIDTH (1920 * 3)
-        LOCAL_ALIGNED_32(uint8_t, src0, [RGB24_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, src1, [RGB24_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, dst0, [RGB24_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, dst1, [RGB24_BENCH_WIDTH]);
+        uint8_t *src0 = conversion_src0;
+        uint8_t *src1 = conversion_src1;
+        uint8_t *dst0 = conversion_dst0;
+        uint8_t *dst1 = conversion_dst1;
 
         declare_func(void, const uint8_t *src, uint8_t *dst, int src_size);
 
@@ -887,10 +930,10 @@ void checkasm_check_sw_rgb(void)
         static const int rgb32_widths[] = {4, 16, 32, 48, 64, 68, 100, 128, 1920 * 4};
 #define RGB32_BENCH_WIDTH (1920 * 4)
 #define RGB32_DST_SIZE (RGB32_BENCH_WIDTH * 3 / 4 + 8)
-        LOCAL_ALIGNED_32(uint8_t, src0, [RGB32_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, src1, [RGB32_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, dst0, [RGB32_DST_SIZE]);
-        LOCAL_ALIGNED_32(uint8_t, dst1, [RGB32_DST_SIZE]);
+        uint8_t *src0 = conversion_src0;
+        uint8_t *src1 = conversion_src1;
+        uint8_t *dst0 = conversion_dst0;
+        uint8_t *dst1 = conversion_dst1;
 
         declare_func(void, const uint8_t *src, uint8_t *dst, int src_size);
 
@@ -932,10 +975,10 @@ void checkasm_check_sw_rgb(void)
         static const int rgb24to32_widths[] = {3, 12, 24, 36, 48, 51, 126, 1920 * 3};
 #define RGB24TO32_BENCH_WIDTH (1920 * 3)
 #define RGB24TO32_DST_SIZE (RGB24TO32_BENCH_WIDTH * 4 / 3 + 8)
-        LOCAL_ALIGNED_32(uint8_t, src0, [RGB24TO32_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, src1, [RGB24TO32_BENCH_WIDTH]);
-        LOCAL_ALIGNED_32(uint8_t, dst0, [RGB24TO32_DST_SIZE]);
-        LOCAL_ALIGNED_32(uint8_t, dst1, [RGB24TO32_DST_SIZE]);
+        uint8_t *src0 = conversion_src0;
+        uint8_t *src1 = conversion_src1;
+        uint8_t *dst0 = conversion_dst0;
+        uint8_t *dst1 = conversion_dst1;
 
         declare_func(void, const uint8_t *src, uint8_t *dst, int src_size);
 
@@ -1004,4 +1047,7 @@ void checkasm_check_sw_rgb(void)
 
     check_yuv2packedX();
     report("yuv2packedX");
+
+    av_free(conversion_buffers);
+#undef RGB_CONVERSION_BUF_SIZE
 }

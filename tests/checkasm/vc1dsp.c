@@ -24,6 +24,7 @@
 
 #include "libavcodec/vc1dsp.h"
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/internal.h"
 #include "libavutil/intreadwrite.h"
@@ -394,12 +395,14 @@ static void check_unescape(void)
     /* This appears to be a typical length of buffer in use */
 #define LOG2_UNESCAPE_BUF_SIZE 17
 #define UNESCAPE_BUF_SIZE (1u<<LOG2_UNESCAPE_BUF_SIZE)
-    LOCAL_ALIGNED_8(uint8_t, escaped0, [UNESCAPE_BUF_SIZE]);
-    LOCAL_ALIGNED_8(uint8_t, escaped1, [UNESCAPE_BUF_SIZE]);
-    LOCAL_ALIGNED_8(uint8_t, unescaped0, [UNESCAPE_BUF_SIZE]);
-    LOCAL_ALIGNED_8(uint8_t, unescaped1, [UNESCAPE_BUF_SIZE]);
+    uint8_t *escaped0   = av_malloc(UNESCAPE_BUF_SIZE);
+    uint8_t *escaped1   = av_malloc(UNESCAPE_BUF_SIZE);
+    uint8_t *unescaped0 = av_malloc(UNESCAPE_BUF_SIZE);
+    uint8_t *unescaped1 = av_malloc(UNESCAPE_BUF_SIZE);
 
     VC1DSPContext h;
+
+    av_assert0(escaped0 && escaped1 && unescaped0 && unescaped1);
 
     ff_vc1dsp_init(&h);
 
@@ -437,6 +440,11 @@ static void check_unescape(void)
         /* Benchmark the no-escape-sequences case */
         bench_new(escaped1, UNESCAPE_BUF_SIZE, unescaped1);
     }
+
+    av_free(escaped0);
+    av_free(escaped1);
+    av_free(unescaped0);
+    av_free(unescaped1);
 }
 
 static void check_mspel_pixels(void)

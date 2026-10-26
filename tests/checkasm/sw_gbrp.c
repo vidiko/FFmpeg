@@ -19,8 +19,10 @@
 
 #include <string.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 
@@ -75,6 +77,23 @@ static void check_output_yuv2gbrp(void)
     static const int input_sizes[] = {8, 24, 128, 144, 256, 512};
     uint8_t *dst0[4];
     uint8_t *dst1[4];
+    int32_t *src_y, *src_u, *src_v, *src_a;
+    uint8_t *dst0_r, *dst0_g, *dst0_b, *dst0_a;
+    uint8_t *dst1_r, *dst1_g, *dst1_b, *dst1_a;
+    struct OutputYuv2GbrpBuffers {
+        int32_t src_y[LARGEST_FILTER * LARGEST_INPUT_SIZE];
+        int32_t src_u[LARGEST_FILTER * LARGEST_INPUT_SIZE];
+        int32_t src_v[LARGEST_FILTER * LARGEST_INPUT_SIZE];
+        int32_t src_a[LARGEST_FILTER * LARGEST_INPUT_SIZE];
+        uint8_t dst0_r[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst0_g[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst0_b[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst0_a[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst1_r[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst1_g[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst1_b[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+        uint8_t dst1_a[LARGEST_INPUT_SIZE * sizeof(int32_t)];
+    } *buffers = av_malloc(sizeof(*buffers));
 
     declare_func(void, SwsInternal *c, const int16_t *lumFilter,
                        const int16_t **lumSrcx, int lumFilterSize,
@@ -91,20 +110,19 @@ static void check_output_yuv2gbrp(void)
     LOCAL_ALIGNED_8(int16_t, luma_filter, [LARGEST_FILTER]);
     LOCAL_ALIGNED_8(int16_t, chr_filter, [LARGEST_FILTER]);
 
-    LOCAL_ALIGNED_8(int32_t, src_y, [LARGEST_FILTER * LARGEST_INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_u, [LARGEST_FILTER * LARGEST_INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_v, [LARGEST_FILTER * LARGEST_INPUT_SIZE]);
-    LOCAL_ALIGNED_8(int32_t, src_a, [LARGEST_FILTER * LARGEST_INPUT_SIZE]);
-
-    LOCAL_ALIGNED_8(uint8_t, dst0_r, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst0_g, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst0_b, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst0_a, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-
-    LOCAL_ALIGNED_8(uint8_t, dst1_r, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst1_g, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst1_b, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
-    LOCAL_ALIGNED_8(uint8_t, dst1_a, [LARGEST_INPUT_SIZE * sizeof(int32_t)]);
+    av_assert0(buffers);
+    src_y = buffers->src_y;
+    src_u = buffers->src_u;
+    src_v = buffers->src_v;
+    src_a = buffers->src_a;
+    dst0_r = buffers->dst0_r;
+    dst0_g = buffers->dst0_g;
+    dst0_b = buffers->dst0_b;
+    dst0_a = buffers->dst0_a;
+    dst1_r = buffers->dst1_r;
+    dst1_g = buffers->dst1_g;
+    dst1_b = buffers->dst1_b;
+    dst1_a = buffers->dst1_a;
 
     randomize_buffers((uint8_t*)src_y, LARGEST_FILTER * LARGEST_INPUT_SIZE * sizeof(int32_t));
     randomize_buffers((uint8_t*)src_u, LARGEST_FILTER * LARGEST_INPUT_SIZE * sizeof(int32_t));
@@ -183,6 +201,7 @@ static void check_output_yuv2gbrp(void)
         }
     }
     sws_freeContext(sws);
+    av_free(buffers);
 }
 
 #undef LARGEST_INPUT_SIZE

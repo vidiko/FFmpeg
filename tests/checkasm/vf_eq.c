@@ -20,7 +20,9 @@
 #include "checkasm.h"
 #include "libavfilter/avfilter.h"
 #include "libavfilter/vf_eq.h"
+#include "libavutil/avassert.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #define WIDTH 256
@@ -40,9 +42,9 @@
 
 static void check_eq(void)
 {
-    LOCAL_ALIGNED_32(uint8_t, src,     [PIXELS]);
-    LOCAL_ALIGNED_32(uint8_t, dst_ref, [PIXELS]);
-    LOCAL_ALIGNED_32(uint8_t, dst_new, [PIXELS]);
+    uint8_t *src     = av_malloc(PIXELS);
+    uint8_t *dst_ref = av_malloc(PIXELS);
+    uint8_t *dst_new = av_malloc(PIXELS);
     int w = WIDTH;
     int h = HEIGHT;
     int src_stride = SRC_STRIDE;
@@ -51,6 +53,8 @@ static void check_eq(void)
     EQContext eq;
     declare_func(void, EQParameters *param, uint8_t *dst, int dst_stride,
                  const uint8_t *src, int src_stride, int w, int h);
+
+    av_assert0(src && dst_ref && dst_new);
 
     double rand_contrast = (int)(rnd() % (RANDOM_RANGE * 2) - RANDOM_RANGE) /
                            (SCALE * 1.0);
@@ -71,6 +75,10 @@ static void check_eq(void)
             fail();
         bench_new(&pa, dst_new, dst_stride, src, src_stride, w, h);
     }
+
+    av_free(src);
+    av_free(dst_ref);
+    av_free(dst_new);
 }
 
 void checkasm_check_vf_eq(void)

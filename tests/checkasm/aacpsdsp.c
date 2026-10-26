@@ -19,7 +19,9 @@
 #include <string.h>
 
 #include "libavcodec/aacpsdsp.h"
+#include "libavutil/avassert.h"
 #include "libavutil/intfloat.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #include "checkasm.h"
@@ -187,50 +189,58 @@ static void test_hybrid_synthesis_deint(void)
 
 static void test_stereo_interpolate(PSDSPContext *psdsp)
 {
+    struct StereoInterpolateBuffers {
+        INTFLOAT l[BUF_SIZE][2];
+        INTFLOAT r[BUF_SIZE][2];
+        INTFLOAT l0[BUF_SIZE][2];
+        INTFLOAT r0[BUF_SIZE][2];
+        INTFLOAT l1[BUF_SIZE][2];
+        INTFLOAT r1[BUF_SIZE][2];
+        INTFLOAT h[2][4];
+        INTFLOAT h_step[2][4];
+    } *buffers = av_malloc(sizeof(*buffers));
     int i;
-    LOCAL_ALIGNED_16(INTFLOAT, l,  [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, r,  [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, l0, [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, r0, [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, l1, [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, r1, [BUF_SIZE], [2]);
-    LOCAL_ALIGNED_16(INTFLOAT, h, [2], [4]);
-    LOCAL_ALIGNED_16(INTFLOAT, h_step, [2], [4]);
 
     declare_func(void, INTFLOAT (*l)[2], INTFLOAT (*r)[2],
                        INTFLOAT h[2][4], INTFLOAT h_step[2][4], int len);
 
-    randomize((INTFLOAT *)l, BUF_SIZE * 2);
-    randomize((INTFLOAT *)r, BUF_SIZE * 2);
+    av_assert0(buffers);
+
+    randomize((INTFLOAT *)buffers->l, BUF_SIZE * 2);
+    randomize((INTFLOAT *)buffers->r, BUF_SIZE * 2);
 
     for (i = 0; i < 2; i++) {
         if (check_func(psdsp->stereo_interpolate[i], "ps_stereo_interpolate%s", i ? "_ipdopd" : "")) {
-            memcpy(l0, l, BUF_SIZE * 2 * sizeof(INTFLOAT));
-            memcpy(l1, l, BUF_SIZE * 2 * sizeof(INTFLOAT));
-            memcpy(r0, r, BUF_SIZE * 2 * sizeof(INTFLOAT));
-            memcpy(r1, r, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            memcpy(buffers->l0, buffers->l, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            memcpy(buffers->l1, buffers->l, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            memcpy(buffers->r0, buffers->r, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            memcpy(buffers->r1, buffers->r, BUF_SIZE * 2 * sizeof(INTFLOAT));
 
-            randomize((INTFLOAT *)h, 2 * 4);
-            randomize((INTFLOAT *)h_step, 2 * 4);
+            randomize((INTFLOAT *)buffers->h, 2 * 4);
+            randomize((INTFLOAT *)buffers->h_step, 2 * 4);
             // Clear the least significant 14 bits of h_step, to avoid
             // divergence when accumulating h_step BUF_SIZE times into
             // a float variable which may or may not have extra intermediate
             // precision. Therefore clear roughly log2(BUF_SIZE) less
             // significant bits, to get the same result regardless of any
             // extra precision in the accumulator.
-            clear_less_significant_bits((INTFLOAT *)h_step, 2 * 4, 14);
+            clear_less_significant_bits((INTFLOAT *)buffers->h_step, 2 * 4, 14);
 
-            call_ref(l0, r0, h, h_step, BUF_SIZE);
-            call_new(l1, r1, h, h_step, BUF_SIZE);
-            if (!float_near_abs_eps_array((float *)l0, (float *)l1, EPS, BUF_SIZE * 2) ||
-                !float_near_abs_eps_array((float *)r0, (float *)r1, EPS, BUF_SIZE * 2))
+            call_ref(buffers->l0, buffers->r0, buffers->h, buffers->h_step, BUF_SIZE);
+            call_new(buffers->l1, buffers->r1, buffers->h, buffers->h_step, BUF_SIZE);
+            if (!float_near_abs_eps_array((float *)buffers->l0, (float *)buffers->l1,
+                                          EPS, BUF_SIZE * 2) ||
+                !float_near_abs_eps_array((float *)buffers->r0, (float *)buffers->r1,
+                                          EPS, BUF_SIZE * 2))
                 fail();
 
-            memcpy(l1, l, BUF_SIZE * 2 * sizeof(INTFLOAT));
-            memcpy(r1, r, BUF_SIZE * 2 * sizeof(INTFLOAT));
-            bench_new(l1, r1, h, h_step, BUF_SIZE);
+            memcpy(buffers->l1, buffers->l, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            memcpy(buffers->r1, buffers->r, BUF_SIZE * 2 * sizeof(INTFLOAT));
+            bench_new(buffers->l1, buffers->r1, buffers->h, buffers->h_step, BUF_SIZE);
         }
     }
+
+    av_free(buffers);
 }
 
 void checkasm_check_aacpsdsp(void)

@@ -20,7 +20,9 @@
 #include "checkasm.h"
 #include "libavfilter/avfilter.h"
 #include "libavfilter/convolution.h"
+#include "libavutil/avassert.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #define WIDTH 512
@@ -38,9 +40,10 @@
 
 static void check_sobel(const char * report_name)
 {
-    LOCAL_ALIGNED_32(uint8_t, src,     [PIXELS]);
-    LOCAL_ALIGNED_32(uint8_t, dst_ref, [PIXELS]);
-    LOCAL_ALIGNED_32(uint8_t, dst_new, [PIXELS]);
+    uint8_t *src          = av_malloc(PIXELS);
+    uint8_t *dst_ref_base = av_malloc(PIXELS);
+    uint8_t *dst_new      = av_malloc(PIXELS);
+    uint8_t *dst_ref      = dst_ref_base;
     const int height = WIDTH;
     const int width  = HEIGHT;
     const int stride = SRC_STRIDE;
@@ -61,6 +64,8 @@ static void check_sobel(const char * report_name)
 
     declare_func(void, uint8_t *dst, int width, float scale, float delta, const int *const matrix,
                  const uint8_t *c[], int peak, int radius, int dstride, int stride, int size);
+
+    av_assert0(src && dst_ref && dst_new);
 
     s.scale = scale;
     s.delta = delta;
@@ -95,6 +100,9 @@ static void check_sobel(const char * report_name)
         }
     }
 
+    av_free(src);
+    av_free(dst_ref_base);
+    av_free(dst_new);
 }
 
 void checkasm_check_vf_sobel(void)

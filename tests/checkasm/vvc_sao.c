@@ -22,6 +22,7 @@
 
 #include "checkasm.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 #include "libavcodec/vvc/dsp.h"
@@ -33,6 +34,9 @@ static const uint32_t sao_size[] = {8, 16, 32, 48, 64, 80, 96, 112, 128};
 #define SIZEOF_PIXEL ((bit_depth + 7) / 8)
 #define PIXEL_STRIDE (2*MAX_CTU_SIZE + AV_INPUT_BUFFER_PADDING_SIZE) //same with sao_edge src_stride
 #define BUF_SIZE (PIXEL_STRIDE * (MAX_CTU_SIZE+2) * 2) //+2 for top and bottom row, *2 for high bit depth
+#define DST_PAD 16
+#define DST_STRIDE ((MAX_CTU_SIZE + 2 * DST_PAD) * 2)
+#define DST_BUF_SIZE (DST_STRIDE * (MAX_CTU_SIZE + 2 * DST_PAD))
 #define OFFSET_THRESH (1 << (bit_depth - 5))
 #define OFFSET_LENGTH 5
 
@@ -66,13 +70,20 @@ static const uint32_t sao_size[] = {8, 16, 32, 48, 64, 80, 96, 112, 128};
 
 static void check_sao_band(VVCDSPContext *h, int bit_depth)
 {
-    PIXEL_RECT(dst0, MAX_CTU_SIZE, MAX_CTU_SIZE);
-    PIXEL_RECT(dst1, MAX_CTU_SIZE, MAX_CTU_SIZE);
-    LOCAL_ALIGNED_32(uint8_t, src0, [BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [BUF_SIZE]);
+    uint8_t *dst0_buf = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1_buf = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst0, *dst1;
+    uint8_t *src0 = av_malloc(BUF_SIZE);
+    uint8_t *src1 = av_malloc(BUF_SIZE);
     int16_t offset_val[OFFSET_LENGTH];
     const int left_class = rnd()%32;
     const int walign = 16;
+
+    if (!dst0_buf || !dst1_buf || !src0 || !src1)
+        fail();
+
+    dst0 = dst0_buf + DST_PAD * DST_STRIDE + DST_PAD * 2;
+    dst1 = dst1_buf + DST_PAD * DST_STRIDE + DST_PAD * 2;
 
     for (int i = 0; i < FF_ARRAY_ELEMS(sao_size); i++) {
         const int block_size = sao_size[i];
@@ -86,27 +97,39 @@ static void check_sao_band(VVCDSPContext *h, int bit_depth)
             for (int w = prev_size + 4; w <= block_size; w += 4) {
                 randomize_buffers(src0, src1, BUF_SIZE);
                 randomize_buffers2(offset_val, OFFSET_LENGTH);
-                CLEAR_PIXEL_RECT(dst0);
-                CLEAR_PIXEL_RECT(dst1);
+                checkasm_clear(dst0_buf, DST_BUF_SIZE);
+                checkasm_clear(dst1_buf, DST_BUF_SIZE);
 
-                call_ref(dst0, src0, dst0_stride, stride, offset_val, left_class, w, block_size);
-                call_new(dst1, src1, dst1_stride, stride, offset_val, left_class, w, block_size);
-                checkasm_check_pixel_padded_align(dst0, dst0_stride, dst1, dst1_stride, w, block_size, "dst", walign, 1);
+                call_ref(dst0, src0, DST_STRIDE, stride, offset_val, left_class, w, block_size);
+                call_new(dst1, src1, DST_STRIDE, stride, offset_val, left_class, w, block_size);
+                checkasm_check_pixel_padded_align(dst0, DST_STRIDE, dst1, DST_STRIDE, w, block_size, "dst", walign, 1);
             }
-            bench_new(dst1, src1, dst1_stride, stride, offset_val, left_class, block_size, block_size);
+            bench_new(dst1, src1, DST_STRIDE, stride, offset_val, left_class, block_size, block_size);
         }
     }
+
+    av_free(dst0_buf);
+    av_free(dst1_buf);
+    av_free(src0);
+    av_free(src1);
 }
 
 static void check_sao_edge(VVCDSPContext *h, int bit_depth)
 {
-    PIXEL_RECT(dst0, MAX_CTU_SIZE, MAX_CTU_SIZE);
-    PIXEL_RECT(dst1, MAX_CTU_SIZE, MAX_CTU_SIZE);
-    LOCAL_ALIGNED_32(uint8_t, src0, [BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [BUF_SIZE]);
+    uint8_t *dst0_buf = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1_buf = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst0, *dst1;
+    uint8_t *src0 = av_malloc(BUF_SIZE);
+    uint8_t *src1 = av_malloc(BUF_SIZE);
     int16_t offset_val[OFFSET_LENGTH];
     const int eo = rnd()%4;
     const int walign = 16;
+
+    if (!dst0_buf || !dst1_buf || !src0 || !src1)
+        fail();
+
+    dst0 = dst0_buf + DST_PAD * DST_STRIDE + DST_PAD * 2;
+    dst1 = dst1_buf + DST_PAD * DST_STRIDE + DST_PAD * 2;
 
     for (int i = 0; i < FF_ARRAY_ELEMS(sao_size); i++) {
         int block_size = sao_size[i];
@@ -119,16 +142,21 @@ static void check_sao_edge(VVCDSPContext *h, int bit_depth)
             for (int w = prev_size + 4; w <= block_size; w += 4) {
                 randomize_buffers(src0, src1, BUF_SIZE);
                 randomize_buffers2(offset_val, OFFSET_LENGTH);
-                CLEAR_PIXEL_RECT(dst0);
-                CLEAR_PIXEL_RECT(dst1);
+                checkasm_clear(dst0_buf, DST_BUF_SIZE);
+                checkasm_clear(dst1_buf, DST_BUF_SIZE);
 
-                call_ref(dst0, src0 + offset, dst0_stride, offset_val, eo, w, block_size);
-                call_new(dst1, src1 + offset, dst1_stride, offset_val, eo, w, block_size);
-                checkasm_check_pixel_padded_align(dst0, dst0_stride, dst1, dst1_stride, w, block_size, "dst", walign, 1);
+                call_ref(dst0, src0 + offset, DST_STRIDE, offset_val, eo, w, block_size);
+                call_new(dst1, src1 + offset, DST_STRIDE, offset_val, eo, w, block_size);
+                checkasm_check_pixel_padded_align(dst0, DST_STRIDE, dst1, DST_STRIDE, w, block_size, "dst", walign, 1);
             }
-            bench_new(dst1, src1 + offset, dst1_stride, offset_val, eo, block_size, block_size);
+            bench_new(dst1, src1 + offset, DST_STRIDE, offset_val, eo, block_size, block_size);
         }
     }
+
+    av_free(dst0_buf);
+    av_free(dst1_buf);
+    av_free(src0);
+    av_free(src1);
 }
 
 void checkasm_check_vvc_sao(void)

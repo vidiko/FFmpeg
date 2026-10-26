@@ -216,7 +216,7 @@ static void binary(char *buf, uint32_t value, int bits)
 
 static int test_apv_read_vlc(void)
 {
-    APVVLCLUT lut;
+    static APVVLCLUT lut;
     int err = 0;
 
     ff_apv_entropy_build_decode_lut(&lut);
@@ -300,7 +300,7 @@ static int test_apv_entropy_decode_block(void)
     // Generate random entropy blocks, code them, then ensure they
     // decode to the same block with both implementations.
 
-    APVVLCLUT decode_lut;
+    static APVVLCLUT decode_lut;
     AVLFG lfg;
     unsigned int seed = av_get_random_seed();
     av_lfg_init(&lfg, seed);

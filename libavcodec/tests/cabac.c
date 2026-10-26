@@ -138,8 +138,8 @@ static void init_cabac_encoder(CABACTestContext *c, uint8_t *buf, int buf_size)
 
 int main(void){
     CABACTestContext c;
-    uint8_t b[9*SIZE];
-    uint8_t r[9*SIZE];
+    static uint8_t b[9*SIZE];
+    static uint8_t r[9*SIZE];
     int i, ret = 0;
     uint8_t state[10]= {0};
     AVLFG prng;

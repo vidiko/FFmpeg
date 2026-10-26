@@ -27,9 +27,9 @@
 int main(void){
 #define width  256
 #define height 256
-    int buffer[2][width*height];
-    short obuffer[width*height];
-    SnowContext s;
+    static int buffer[2][width*height];
+    static short obuffer[width*height];
+    static SnowContext s;
     int i;
     AVLFG prng;
     int ret = 0;

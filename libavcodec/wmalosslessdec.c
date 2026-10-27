@@ -357,6 +357,7 @@ static int decode_tilehdr(WmallDecodeCtx *s)
         int subframe_len, in_use = 0;
 
         /* check which channels contain the subframe */
+        memset(contains_subframe, 0, sizeof(contains_subframe));
         for (c = 0; c < s->num_channels; c++) {
             if (num_samples[c] == min_channel_len) {
                 if (fixed_channel_layout || channels_for_cur_subframe == 1 ||
@@ -366,8 +367,7 @@ static int decode_tilehdr(WmallDecodeCtx *s)
                     contains_subframe[c] = get_bits1(&s->gb);
                 }
                 in_use |= contains_subframe[c];
-            } else
-                contains_subframe[c] = 0;
+            }
         }
 
         if (!in_use) {

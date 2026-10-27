@@ -225,6 +225,8 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
             if (bits_res) {
                 int res[14], pred, granularity;
                 aom->num_y_points = ref->codec.aom.num_y_points;
+                // ref is the first set, which cannot predict and whose count was checked when parsed
+                av_assume(aom->num_y_points <= 14);
                 for (i = 0; i < aom->num_y_points; i++)
                     res[i] = get_bits(gb, bits_res);
                 granularity = get_bits(gb, 3);

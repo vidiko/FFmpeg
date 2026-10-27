@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "libavutil/intmath.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/macros.h"
 #include "libavutil/mem_internal.h"

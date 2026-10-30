@@ -542,7 +542,7 @@ static int rtsp_read_play(AVFormatContext *s)
 {
     RTSPState *rt = s->priv_data;
     RTSPMessageHeader reply1, *reply = &reply1;
-    int i;
+    int i, ret;
     char cmd[MAX_URL_SIZE];
 
     av_log(s, AV_LOG_DEBUG, "hello state=%d\n", rt->state);
@@ -584,7 +584,8 @@ static int rtsp_read_play(AVFormatContext *s)
                      rt->seek_timestamp / AV_TIME_BASE,
                      rt->seek_timestamp / (AV_TIME_BASE / 1000) % 1000);
         }
-        ff_rtsp_send_cmd(s, "PLAY", rt->control_uri, cmd, reply, NULL);
+        if ((ret = ff_rtsp_send_cmd(s, "PLAY", rt->control_uri, cmd, reply, NULL)) < 0)
+            return ret;
         if (reply->status_code != RTSP_STATUS_OK) {
             return ff_rtsp_averror(reply->status_code, -1);
         }
@@ -613,11 +614,13 @@ static int rtsp_read_pause(AVFormatContext *s)
 {
     RTSPState *rt = s->priv_data;
     RTSPMessageHeader reply1, *reply = &reply1;
+    int ret;
 
     if (rt->state != RTSP_STATE_STREAMING)
         return 0;
     else if (!(rt->server_type == RTSP_SERVER_REAL && rt->need_subscription)) {
-        ff_rtsp_send_cmd(s, "PAUSE", rt->control_uri, NULL, reply, NULL);
+        if ((ret = ff_rtsp_send_cmd(s, "PAUSE", rt->control_uri, NULL, reply, NULL)) < 0)
+            return ret;
         if (reply->status_code != RTSP_STATUS_OK) {
             return ff_rtsp_averror(reply->status_code, -1);
         }
@@ -751,7 +754,11 @@ int ff_rtsp_setup_input_streams(AVFormatContext *s, RTSPMessageHeader *reply)
                    "Require: com.real.retain-entity-for-setup\r\n",
                    sizeof(cmd));
     }
-    ff_rtsp_send_cmd(s, "DESCRIBE", rt->control_uri, cmd, reply, &content);
+    ret = ff_rtsp_send_cmd(s, "DESCRIBE", rt->control_uri, cmd, reply, &content);
+    if (ret < 0) {
+        av_freep(&content);
+        return ret;
+    }
     if (reply->status_code != RTSP_STATUS_OK) {
         av_freep(&content);
         return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
@@ -987,8 +994,10 @@ retry:
                 snprintf(cmd, sizeof(cmd),
                          "Unsubscribe: %s\r\n",
                          rt->last_subscription);
-                ff_rtsp_send_cmd(s, "SET_PARAMETER", rt->control_uri,
-                                 cmd, reply, NULL);
+                ret = ff_rtsp_send_cmd(s, "SET_PARAMETER", rt->control_uri,
+                                       cmd, reply, NULL);
+                if (ret < 0)
+                    return ret;
                 if (reply->status_code != RTSP_STATUS_OK)
                     return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
                 rt->need_subscription = 1;
@@ -1022,14 +1031,19 @@ retry:
                 }
             }
             av_strlcatf(cmd, sizeof(cmd), "%s\r\n", rt->last_subscription);
-            ff_rtsp_send_cmd(s, "SET_PARAMETER", rt->control_uri,
-                             cmd, reply, NULL);
+            ret = ff_rtsp_send_cmd(s, "SET_PARAMETER", rt->control_uri,
+                                   cmd, reply, NULL);
+            if (ret < 0)
+                return ret;
             if (reply->status_code != RTSP_STATUS_OK)
                 return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
             rt->need_subscription = 0;
 
-            if (rt->state == RTSP_STATE_STREAMING)
-                rtsp_read_play (s);
+            if (rt->state == RTSP_STATE_STREAMING) {
+                ret = rtsp_read_play(s);
+                if (ret < 0)
+                    return ret;
+            }
         }
     }
 
@@ -1040,21 +1054,22 @@ retry:
                 rt->lower_transport_mask & (1 << RTSP_LOWER_TRANSPORT_TCP)) {
                 RTSPMessageHeader reply1, *reply = &reply1;
                 av_log(s, AV_LOG_WARNING, "UDP timeout, retrying with TCP\n");
-                if (rtsp_read_pause(s) != 0)
-                    return -1;
+                if ((ret = rtsp_read_pause(s)) != 0)
+                    return ret;
                 // TEARDOWN is required on Real-RTSP, but might make
                 // other servers close the connection.
                 if (rt->server_type == RTSP_SERVER_REAL)
                     ff_rtsp_send_cmd(s, "TEARDOWN", rt->control_uri, NULL,
                                      reply, NULL);
                 rt->session_id[0] = '\0';
-                if (resetup_tcp(s) == 0) {
-                    rt->state = RTSP_STATE_IDLE;
-                    rt->need_subscription = 1;
-                    if (rtsp_read_play(s) != 0)
-                        return -1;
-                    goto retry;
-                }
+                ret = resetup_tcp(s);
+                if (ret)
+                    return ret < 0 ? ret : AVERROR(EPROTONOSUPPORT);
+                rt->state = RTSP_STATE_IDLE;
+                rt->need_subscription = 1;
+                if ((ret = rtsp_read_play(s)) != 0)
+                    return ret;
+                goto retry;
             }
         }
         return ret;
@@ -1068,9 +1083,14 @@ retry:
             if (rt->server_type == RTSP_SERVER_WMS ||
                 (rt->server_type != RTSP_SERVER_REAL &&
                  rt->get_parameter_supported)) {
-                ff_rtsp_send_cmd_async(s, "GET_PARAMETER", rt->control_uri, NULL);
+                ret = ff_rtsp_send_cmd_async(s, "GET_PARAMETER", rt->control_uri, NULL);
             } else {
-                ff_rtsp_send_cmd_async(s, "OPTIONS", rt->control_uri, NULL);
+                ret = ff_rtsp_send_cmd_async(s, "OPTIONS", rt->control_uri, NULL);
+            }
+            if (ret < 0) {
+                av_log(s, AV_LOG_WARNING, "Failed to send RTSP keepalive: %s\n",
+                       av_err2str(ret));
+                rt->last_cmd_time = av_gettime_relative();
             }
             /* The stale flag should be reset when creating the auth response in
              * ff_rtsp_send_cmd_async, but reset it here just in case we never

@@ -48,7 +48,7 @@ int ff_rtsp_setup_output_streams(AVFormatContext *s, const char *addr)
 {
     RTSPState *rt = s->priv_data;
     RTSPMessageHeader reply1, *reply = &reply1;
-    int i;
+    int i, ret;
     char *sdp;
     AVFormatContext sdp_ctx, *ctx_array[1];
     char url[MAX_URL_SIZE];
@@ -82,10 +82,12 @@ int ff_rtsp_setup_output_streams(AVFormatContext *s, const char *addr)
         return AVERROR_INVALIDDATA;
     }
     av_log(s, AV_LOG_VERBOSE, "SDP:\n%s\n", sdp);
-    ff_rtsp_send_cmd_with_content(s, "ANNOUNCE", rt->control_uri,
-                                  "Content-Type: application/sdp\r\n",
-                                  reply, NULL, sdp, strlen(sdp));
+    ret = ff_rtsp_send_cmd_with_content(s, "ANNOUNCE", rt->control_uri,
+                                        "Content-Type: application/sdp\r\n",
+                                        reply, NULL, sdp, strlen(sdp));
     av_free(sdp);
+    if (ret < 0)
+        return ret;
     if (reply->status_code != RTSP_STATUS_OK)
         return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
 
@@ -114,12 +116,14 @@ static int rtsp_write_record(AVFormatContext *s)
     RTSPState *rt = s->priv_data;
     RTSPMessageHeader reply1, *reply = &reply1;
     char cmd[MAX_URL_SIZE];
+    int ret;
 
     snprintf(cmd, sizeof(cmd),
              "Range: npt=0.000-\r\n");
-    ff_rtsp_send_cmd(s, "RECORD", rt->control_uri, cmd, reply, NULL);
+    if ((ret = ff_rtsp_send_cmd(s, "RECORD", rt->control_uri, cmd, reply, NULL)) < 0)
+        return ret;
     if (reply->status_code != RTSP_STATUS_OK)
-        return ff_rtsp_averror(reply->status_code, -1);
+        return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
     rt->state = RTSP_STATE_STREAMING;
     return 0;
 }
@@ -132,10 +136,10 @@ static int rtsp_write_header(AVFormatContext *s)
     if (ret)
         return ret;
 
-    if (rtsp_write_record(s) < 0) {
+    if ((ret = rtsp_write_record(s)) < 0) {
         ff_rtsp_close_streams(s);
         ff_rtsp_close_connections(s);
-        return AVERROR_INVALIDDATA;
+        return ret;
     }
     return 0;
 }

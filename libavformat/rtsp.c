@@ -836,6 +836,9 @@ void ff_rtsp_undo_setup(AVFormatContext *s, int send_packets)
         rtsp_st->transport_priv = NULL;
         ffurl_closep(&rtsp_st->rtp_handle);
     }
+    /* the cached poll set holds the descriptors closed above */
+    av_freep(&rt->p);
+    rt->max_p = 0;
 }
 
 /* close and free RTSP streams */
@@ -1478,6 +1481,7 @@ int ff_rtsp_send_cmd_with_content_async(AVFormatContext *s,
     RTSPState *rt = s->priv_data;
     char buf[MAX_URL_SIZE], *out_buf;
     char base64buf[AV_BASE64_SIZE(sizeof(buf))];
+    int ret;
 
     if (!rt->rtsp_hd_out)
         return AVERROR(ENOTCONN);
@@ -1513,13 +1517,15 @@ int ff_rtsp_send_cmd_with_content_async(AVFormatContext *s,
 
     av_log(s, AV_LOG_TRACE, "Sending:\n%s--\n", buf);
 
-    ffurl_write(rt->rtsp_hd_out, out_buf, strlen(out_buf));
+    if ((ret = ffurl_write(rt->rtsp_hd_out, out_buf, strlen(out_buf))) < 0)
+        return ret;
     if (send_content_length > 0 && send_content) {
         if (rt->control_transport == RTSP_MODE_TUNNEL) {
             avpriv_report_missing_feature(s, "Tunneling of RTSP requests with content data");
             return AVERROR_PATCHWELCOME;
         }
-        ffurl_write(rt->rtsp_hd_out, send_content, send_content_length);
+        if ((ret = ffurl_write(rt->rtsp_hd_out, send_content, send_content_length)) < 0)
+            return ret;
     }
     rt->last_cmd_time = av_gettime_relative();
 
@@ -1774,7 +1780,9 @@ int ff_rtsp_make_setup_request(AVFormatContext *s, const char *host, int port,
                         "RealChallenge2: %s, sd=%s\r\n",
                         rt->session_id, real_res, real_csum);
         }
-        ff_rtsp_send_cmd(s, "SETUP", rtsp_st->control_url, cmd, reply, NULL);
+        err = ff_rtsp_send_cmd(s, "SETUP", rtsp_st->control_url, cmd, reply, NULL);
+        if (err < 0)
+            goto fail;
         if (reply->status_code == 461 /* Unsupported protocol */ && i == 0) {
             err = 1;
             goto fail;
@@ -2190,7 +2198,9 @@ redirect:
                        "CompanyID: KnKV4M4I/B2FjJ1TToLycw==\r\n"
                        "GUID: 00000000-0000-0000-0000-000000000000\r\n",
                        sizeof(cmd));
-        ff_rtsp_send_cmd(s, "OPTIONS", rt->control_uri, cmd, reply, NULL);
+        err = ff_rtsp_send_cmd(s, "OPTIONS", rt->control_uri, cmd, reply, NULL);
+        if (err < 0)
+            goto fail;
         if (reply->status_code != RTSP_STATUS_OK) {
             err = ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
             goto fail;

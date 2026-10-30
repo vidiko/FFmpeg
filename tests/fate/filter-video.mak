@@ -181,6 +181,14 @@ FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC FORMAT CONCAT SCALE, LAVFI_INDEV FILE
 fate-filter-lavd-scalenorm: tests/data/filtergraphs/scalenorm
 fate-filter-lavd-scalenorm: CMD = framecrc -f lavfi -graph_file $(TARGET_PATH)/tests/data/filtergraphs/scalenorm -i dummy
 
+FATE_FILTER-$(call FILTERFRAMECRC, COLOR FORMAT NORMALIZE) += fate-filter-normalize-white-rgb24
+fate-filter-normalize-white-rgb24: CMD = framecrc -flags bitexact -lavfi color=c=black:s=16x16:r=1:d=1,format=rgb24,normalize=blackpt=white:whitept=black
+FATE_FILTER-$(call FILTERFRAMECRC, COLOR FORMAT NORMALIZE SCALE) += fate-filter-normalize-white-gbrp16le
+fate-filter-normalize-white-gbrp16le: CMD = framecrc -flags bitexact -lavfi color=c=black:s=16x16:r=1:d=1,format=rgb24,scale,format=gbrp16,normalize=blackpt=white:whitept=black,scale -pix_fmt gbrp16le
+
+FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC NORMALIZE) += fate-filter-normalize-range
+fate-filter-normalize-range: CMD = framecrc -flags bitexact -lavfi testsrc=s=16x16:r=1:d=1,normalize=blackpt=0x7f7f7f:whitept=0x818181
+
 FATE_FILTER-$(call FILTERFRAMECRC, COLOR FORMAT SCALE CROP) += fate-filter-scale-fast-bilinear-wide-edge
 fate-filter-scale-fast-bilinear-wide-edge: CMD = framecrc -flags bitexact -lavfi color=c=red:s=40000x1:r=1:d=1,format=yuv444p,scale=40032:1:flags=fast_bilinear,crop=1:1:40031:0 -frames:v 1
 

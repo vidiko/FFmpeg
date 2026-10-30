@@ -18007,6 +18007,8 @@ Set the file path to be used to store log files.
 
 @item log_fmt
 Set the format of the log file (xml, json, csv, or sub).
+Format names are case-sensitive. An unknown value makes the filter fail
+to initialize, even when @option{log_path} is not set.
 
 @item pool
 Set the pool method to be used for computing vmaf.

@@ -519,6 +519,36 @@ static enum VmafLogLevel log_level_map(int log_level)
     }
 }
 
+static enum VmafOutputFormat log_fmt_map(const char *log_fmt)
+{
+    if (log_fmt) {
+        if (!strcmp(log_fmt, "xml"))
+            return VMAF_OUTPUT_FORMAT_XML;
+        if (!strcmp(log_fmt, "json"))
+            return VMAF_OUTPUT_FORMAT_JSON;
+        if (!strcmp(log_fmt, "csv"))
+            return VMAF_OUTPUT_FORMAT_CSV;
+        if (!strcmp(log_fmt, "sub"))
+            return VMAF_OUTPUT_FORMAT_SUB;
+    }
+
+    return log_fmt ? VMAF_OUTPUT_FORMAT_NONE : VMAF_OUTPUT_FORMAT_XML;
+}
+
+static av_cold int check_log_fmt(AVFilterContext *ctx)
+{
+    LIBVMAFContext *s = ctx->priv;
+
+    if (log_fmt_map(s->log_fmt) == VMAF_OUTPUT_FORMAT_NONE) {
+        av_log(ctx, AV_LOG_ERROR,
+               "Unknown log format '%s', must be one of xml, json, csv, sub\n",
+               s->log_fmt);
+        return AVERROR(EINVAL);
+    }
+
+    return 0;
+}
+
 static av_cold int init(AVFilterContext *ctx)
 {
     LIBVMAFContext *s = ctx->priv;
@@ -529,6 +559,10 @@ static av_cold int init(AVFilterContext *ctx)
         .n_subsample = s->n_subsample,
         .n_threads = s->n_threads,
     };
+
+    err = check_log_fmt(ctx);
+    if (err < 0)
+        return err;
 
     err = vmaf_init(&s->vmaf, cfg);
     if (err)
@@ -602,22 +636,6 @@ static int activate(AVFilterContext *ctx)
 {
     LIBVMAFContext *s = ctx->priv;
     return ff_framesync_activate(&s->fs);
-}
-
-static enum VmafOutputFormat log_fmt_map(const char *log_fmt)
-{
-    if (log_fmt) {
-        if (!strcmp(log_fmt, "xml"))
-            return VMAF_OUTPUT_FORMAT_XML;
-        if (!strcmp(log_fmt, "json"))
-            return VMAF_OUTPUT_FORMAT_JSON;
-        if (!strcmp(log_fmt, "csv"))
-            return VMAF_OUTPUT_FORMAT_CSV;
-        if (!strcmp(log_fmt, "sub"))
-            return VMAF_OUTPUT_FORMAT_SUB;
-    }
-
-    return VMAF_OUTPUT_FORMAT_XML;
 }
 
 static enum VmafPoolingMethod pool_method_map(const char *pool_method)
@@ -887,6 +905,11 @@ static int do_vmaf_cuda(FFFrameSync* fs)
 static av_cold int init_cuda(AVFilterContext *ctx)
 {
     LIBVMAFContext *s = ctx->priv;
+    int err = check_log_fmt(ctx);
+
+    if (err < 0)
+        return err;
+
     s->fs.on_event = do_vmaf_cuda;
     return 0;
 }

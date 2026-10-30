@@ -155,11 +155,13 @@ static float search(FOCContext *foc, int pass, int maxpass, int xmin, int xmax, 
 
     if (pass + 1 <= maxpass) {
         int sub_x, sub_y;
-        search(foc, pass+1, maxpass, xmin>>1, (xmax+1)>>1, ymin>>1, (ymax+1)>>1, &sub_x, &sub_y, 2.0);
-        xmin = FFMAX(xmin, 2*sub_x - 4);
-        xmax = FFMIN(xmax, 2*sub_x + 4);
-        ymin = FFMAX(ymin, 2*sub_y - 4);
-        ymax = FFMIN(ymax, 2*sub_y + 4);
+        /* An empty window finds nothing and leaves sub_x and sub_y unset. */
+        if (search(foc, pass+1, maxpass, xmin>>1, (xmax+1)>>1, ymin>>1, (ymax+1)>>1, &sub_x, &sub_y, 2.0) < 2.0) {
+            xmin = FFMAX(xmin, 2*sub_x - 4);
+            xmax = FFMIN(xmax, 2*sub_x + 4);
+            ymin = FFMAX(ymin, 2*sub_y - 4);
+            ymax = FFMIN(ymax, 2*sub_y + 4);
+        }
     }
 
     for (y = ymin; y <= ymax; y++) {

@@ -68,6 +68,12 @@ typedef struct PlaneContext {
     VlcState *vlc_state;
 } PlaneContext;
 
+typedef struct FFV1FloatRemapState {
+    /* Large encoder scratch reused by slice jobs. */
+    int mul[11][1025];
+    float score[1025][23];
+} FFV1FloatRemapState;
+
 #define MAX_SLICES 1024
 
 typedef struct FFV1SliceContext {
@@ -177,6 +183,7 @@ typedef struct FFV1Context {
     int num_h_slices;
 
     FFV1SliceContext *slices;
+    FFV1FloatRemapState *float_remap_state; // encoder-only scratch
     /* RefStruct object, per-slice damage flags shared between frame threads.
      *
      * After a frame thread marks some slice as finished with

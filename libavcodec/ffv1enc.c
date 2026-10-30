@@ -1061,6 +1061,13 @@ static av_cold int encode_init_internal(AVCodecContext *avctx)
         return ret;
     s->slice_count = s->max_slice_count;
 
+    if (s->remap_mode && s->bits_per_raw_sample == 32) {
+        s->float_remap_state = av_malloc_array(FFMIN(avctx->thread_count, s->slice_count),
+                                              sizeof(*s->float_remap_state));
+        if (!s->float_remap_state)
+            return AVERROR(ENOMEM);
+    }
+
     for (int j = 0; j < s->slice_count; j++) {
         FFV1SliceContext *sc = &s->slices[j];
 
@@ -1509,8 +1516,8 @@ static int encode_float32_remap_segment(FFV1SliceContext *sc,
     return get_rac_count(&rc);
 }
 
-static void encode_float32_remap(FFV1Context *f, FFV1SliceContext *sc,
-                                 const uint8_t *src[4])
+static av_noinline void encode_float32_remap(FFV1Context *f, FFV1SliceContext *sc,
+                                 FFV1FloatRemapState *state)
 {
     int pixel_num = sc->slice_width * sc->slice_height;
     const int max_log2_mul_count  = ((int[]){  1,  1,  1,  9,  9,  10})[f->remap_optimizer];
@@ -1520,18 +1527,25 @@ static void encode_float32_remap(FFV1Context *f, FFV1SliceContext *sc,
     const int bruteforce_count    = ((int[]){  0,  0,  0,  1,  1,   1})[f->remap_optimizer];
     const int stair_mode          = ((int[]){  0,  0,  0,  1,  0,   0})[f->remap_optimizer];
     const int magic_log2          = ((int[]){  1,  1,  1,  1,  0,   0})[f->remap_optimizer];
+    int (*const mul_all)[1025] = state->mul;
+    float (*const score_tab_all)[23] = state->score;
+
+    av_assert0(max_log2_mul_count < (int)FF_ARRAY_ELEMS(state->mul));
+    av_assert0((1 << max_log2_mul_count) < (int)FF_ARRAY_ELEMS(state->mul[0]));
+    av_assert0((1 << max_log2_mul_count) < (int)FF_ARRAY_ELEMS(state->score));
+    av_assert0(max_log2_mul < (int)FF_ARRAY_ELEMS(state->score[0]));
 
     for (int p= 0; p < 1 + 2*f->chroma_planes + f->transparency; p++) {
         int best_log2_mul_count = 0;
         float score_sum[11] = {0};
-        int mul_all[11][1025];
 
         for (int log2_mul_count= 0; log2_mul_count <= max_log2_mul_count; log2_mul_count += log2_mul_count_step) {
-            float score_tab_all[1025][23] = {0};
             int64_t last_val = -1;
             int *mul_tab = mul_all[log2_mul_count];
             int last_mul_index = -1;
             int mul_count = 1 << log2_mul_count;
+
+            memset(score_tab_all, 0, sizeof(state->score));
 
             score_sum[log2_mul_count] = 2 * log2_mul_count;
             if (magic_log2)
@@ -1748,9 +1762,9 @@ static int encode_bayer_frame(FFV1Context *f, FFV1SliceContext *sc,
     return 0;
 }
 
-static int encode_slice(AVCodecContext *c, void *arg)
+static int encode_slice(AVCodecContext *c, void *arg, int jobnr, int threadnr)
 {
-    FFV1SliceContext *sc = arg;
+    FFV1SliceContext *sc = (FFV1SliceContext *)arg + jobnr;
     FFV1Context *f   = c->priv_data;
     int width        = sc->slice_width;
     int height       = sc->slice_height;
@@ -1816,7 +1830,10 @@ retry:
         encode_histogram_remap(f, sc);
       } else {
             load_rgb_float32_frame(f, sc, planes, width, height, p->linesize);
-            encode_float32_remap(f, sc, planes);
+            /* With fewer slices than workers, index by job to keep scratch
+             * bounded by both counts, including with custom execute2 callbacks. */
+            int scratch_index = c->thread_count < f->slice_count ? threadnr : jobnr;
+            encode_float32_remap(f, sc, &f->float_remap_state[scratch_index]);
       }
     }
 
@@ -2005,8 +2022,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             sc->c.bytestream_end = sc->c.bytestream_start + len;
         }
     }
-    avctx->execute(avctx, encode_slice, f->slices, NULL,
-                   f->slice_count, sizeof(*f->slices));
+    avctx->execute2(avctx, encode_slice, f->slices, NULL, f->slice_count);
 
     buf_p = pkt->data;
     for (i = 0; i < f->slice_count; i++) {
@@ -2053,6 +2069,7 @@ static av_cold int encode_close(AVCodecContext *avctx)
         }
     }
 
+    av_freep(&s->float_remap_state);
     av_freep(&avctx->stats_out);
     ff_ffv1_close(s);
 

@@ -38,6 +38,8 @@
 #include "libavutil/mathematics.h"
 #include "libavutil/uuid.h"
 
+#define ISM_PATH_MAX 2048
+
 typedef struct Fragment {
     int64_t start_time, duration;
     int n;
@@ -453,8 +455,11 @@ static int add_fragment(OutputStream *os, const char *file, const char *infofile
     frag = av_mallocz(sizeof(*frag));
     if (!frag)
         return AVERROR(ENOMEM);
-    av_strlcpy(frag->file, file, sizeof(frag->file));
-    av_strlcpy(frag->infofile, infofile, sizeof(frag->infofile));
+    if (av_strlcpy(frag->file, file, sizeof(frag->file)) >= sizeof(frag->file) ||
+        av_strlcpy(frag->infofile, infofile, sizeof(frag->infofile)) >= sizeof(frag->infofile)) {
+        av_free(frag);
+        return AVERROR(ENAMETOOLONG);
+    }
     frag->start_time = start_time;
     frag->duration = duration;
     frag->start_pos = start_pos;
@@ -489,6 +494,8 @@ static int copy_moof(AVFormatContext *s, const char* infile, const char *outfile
     avio_flush(out);
     ff_format_io_close(s, &out);
     ff_format_io_close(s, &in);
+    if (ret < 0)
+        unlink(outfile);
     return ret;
 }
 
@@ -499,7 +506,8 @@ static int ism_flush(AVFormatContext *s, int final)
 
     for (i = 0; i < s->nb_streams; i++) {
         OutputStream *os = &c->streams[i];
-        char filename[1024], target_filename[1024], header_filename[1024], curr_dirname[1024];
+        char filename[ISM_PATH_MAX], target_filename[ISM_PATH_MAX];
+        char header_filename[ISM_PATH_MAX], curr_dirname[1024];
         int64_t size;
         int64_t start_ts, duration, moof_size;
         if (!os->packets_written)
@@ -510,13 +518,15 @@ static int ism_flush(AVFormatContext *s, int final)
         if (ret < 0)
             break;
         os->cur_start_pos = os->tail_pos;
-        av_write_frame(os->ctx, NULL);
+        ret = av_write_frame(os->ctx, NULL);
         avio_flush(os->ctx->pb);
         os->packets_written = 0;
         if (!os->out || os->tail_out)
             return AVERROR(EIO);
 
         ffurl_closep(&os->out);
+        if (ret < 0)
+            break;
         size = os->tail_pos - os->cur_start_pos;
         if ((ret = parse_fragment(s, filename, &start_ts, &duration, &moof_size, size)) < 0)
             break;
@@ -542,12 +552,18 @@ static int ism_flush(AVFormatContext *s, int final)
 
         snprintf(header_filename, sizeof(header_filename), "%s/FragmentInfo(%s=%"PRIu64")", os->dirname, os->stream_type_tag, start_ts);
         snprintf(target_filename, sizeof(target_filename), "%s/Fragments(%s=%"PRIu64")", os->dirname, os->stream_type_tag, start_ts);
-        copy_moof(s, filename, header_filename, moof_size);
+        ret = copy_moof(s, filename, header_filename, moof_size);
+        if (ret < 0) {
+            unlink(filename);
+            break;
+        }
         ret = ff_rename(filename, target_filename, s);
         if (ret < 0)
             break;
-        add_fragment(os, target_filename, header_filename, start_ts, duration,
-                     os->cur_start_pos, size);
+        ret = add_fragment(os, target_filename, header_filename, start_ts,
+                           duration, os->cur_start_pos, size);
+        if (ret < 0)
+            break;
     }
 
     if (c->window_size || (final && c->remove_at_exit)) {
@@ -605,7 +621,7 @@ static int ism_write_packet(AVFormatContext *s, AVPacket *pkt)
 static int ism_write_trailer(AVFormatContext *s)
 {
     SmoothStreamingContext *c = s->priv_data;
-    ism_flush(s, 1);
+    int ret = ism_flush(s, 1);
 
     if (c->remove_at_exit) {
         char filename[1024];
@@ -614,7 +630,7 @@ static int ism_write_trailer(AVFormatContext *s)
         rmdir(s->url);
     }
 
-    return 0;
+    return ret;
 }
 
 #define OFFSET(x) offsetof(SmoothStreamingContext, x)

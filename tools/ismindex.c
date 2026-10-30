@@ -219,8 +219,16 @@ static int write_fragments(struct Tracks *tracks, int start_index,
         }
     }
 fail:
-    if (out)
-        fclose(out);
+    if (out) {
+        int io_ret = ferror(out) ? AVERROR(EIO) : 0;
+        if (fclose(out) && !io_ret)
+            io_ret = AVERROR(errno ? errno : EIO);
+        if (io_ret) {
+            fprintf(stderr, "Error writing %s: %s\n", idxname, av_err2str(io_ret));
+            if (!ret)
+                ret = io_ret;
+        }
+    }
     return ret;
 }
 
@@ -440,7 +448,8 @@ static int read_mfra(struct Tracks *tracks, int start_index,
     if (split || ismf)
         err = write_fragments(tracks, start_index, f, basename, split, ismf,
                               output_prefix);
-    err_str = "error in write_fragments";
+    avio_close(f);
+    return err;
 
 fail:
     if (f)

@@ -130,6 +130,7 @@ typedef struct OutputStream {
 
     char codec_str[100];
     int written_len;
+    int io_error;
     char filename[1024];
     char full_path[1024];
     char temp_path[1024];
@@ -225,23 +226,33 @@ static int dashenc_io_open(AVFormatContext *s, AVIOContext **pb, char *filename,
     return err;
 }
 
-static void dashenc_io_close(AVFormatContext *s, AVIOContext **pb, char *filename) {
+static int dashenc_io_close(AVFormatContext *s, AVIOContext **pb, char *filename)
+{
     DASHContext *c = s->priv_data;
     int http_base_proto = filename ? ff_is_http_proto(filename) : 0;
+    int ret = 0;
 
     if (!*pb)
-        return;
+        return 0;
 
     if (!http_base_proto || !c->http_persistent) {
-        ff_format_io_close(s, pb);
+        ret = ff_format_io_close(s, pb);
 #if CONFIG_HTTP_PROTOCOL
     } else {
         URLContext *http_url_context = ffio_geturlcontext(*pb);
         av_assert0(http_url_context);
         avio_flush(*pb);
-        ffurl_shutdown(http_url_context, AVIO_FLAG_WRITE);
+        ret = ffurl_shutdown(http_url_context, AVIO_FLAG_WRITE);
+        if (ret >= 0)
+            ret = (*pb)->error;
+        if (ret < 0)
+            ff_format_io_close(s, pb);
 #endif
     }
+    if (ret < 0)
+        av_log(s, c->ignore_io_errors ? AV_LOG_WARNING : AV_LOG_ERROR,
+               "Unable to write %s: %s\n", filename, av_err2str(ret));
+    return c->ignore_io_errors ? 0 : ret;
 }
 
 static const char *get_format_str(SegmentType segment_type)
@@ -315,16 +326,46 @@ static int init_segment_types(AVFormatContext *s)
     return 0;
 }
 
+static void ignore_single_file_error(DASHContext *c, OutputStream *os)
+{
+    AVIOContext *pb = os->ctx->pb;
+    int err = pb->error;
+    int64_t end = ffiocontext(pb)->written_output_size;
+
+    av_log(os->ctx, AV_LOG_WARNING, "Unable to write stream %td: %s\n",
+           os - c->streams, av_err2str(err));
+    os->io_error = err;
+    os->packets_written = 0;
+    os->total_pkt_size = 0;
+    os->total_pkt_duration = 0;
+    if (!c->global_sidx && (pb->seekable & AVIO_SEEKABLE_NORMAL)) {
+        pb->error = 0;
+        if (avio_seek(pb, end, SEEK_SET) < 0) {
+            pb->error = err;
+            return;
+        }
+        os->pos = end;
+        /* An incomplete initialization segment cannot be recovered. */
+        if (os->init_range_length)
+            os->io_error = 0;
+    }
+}
+
 static int flush_dynbuf(DASHContext *c, OutputStream *os, int *range_length)
 {
     uint8_t *buffer;
+    int ret, err;
 
     if (!os->ctx->pb) {
         return AVERROR(EINVAL);
     }
+    if (os->io_error) {
+        *range_length = 0;
+        return 0;
+    }
 
     // flush
-    av_write_frame(os->ctx, NULL);
+    ret = av_write_frame(os->ctx, NULL);
     avio_flush(os->ctx->pb);
 
     if (!c->single_file) {
@@ -337,10 +378,17 @@ static int flush_dynbuf(DASHContext *c, OutputStream *os, int *range_length)
         av_free(buffer);
 
         // re-open buffer
-        return avio_open_dyn_buf(&os->ctx->pb);
+        err = avio_open_dyn_buf(&os->ctx->pb);
+        return ret < 0 ? ret : err;
     } else {
         *range_length = avio_tell(os->ctx->pb) - os->pos;
-        return 0;
+        if (c->ignore_io_errors && os->ctx->pb->error < 0) {
+            if (ret == os->ctx->pb->error)
+                ret = 0;
+            ignore_single_file_error(c, os);
+            *range_length = 0;
+        }
+        return ret < 0 ? ret : 0;
     }
 }
 
@@ -375,16 +423,16 @@ static void get_start_index_number(OutputStream *os, DASHContext *c,
     }
 }
 
-static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
-                                     int representation_id, int final,
-                                     char *prefetch_url) {
+static int write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
+                                    int representation_id, int final,
+                                    char *prefetch_url) {
     DASHContext *c = s->priv_data;
     int timescale = os->ctx->streams[0]->time_base.den;
     char temp_filename_hls[1024];
     char filename_hls[1024];
     AVDictionary *http_opts = NULL;
     int target_duration = 0;
-    int ret = 0;
+    int ret = 0, err;
     const char *proto = avio_find_protocol_name(c->dirname);
     int use_rename = proto && !strcmp(proto, "file");
     int i, start_index, start_number;
@@ -394,7 +442,7 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
 
     if (!c->hls_playlist || start_index >= os->nb_segments ||
         os->segment_type != SEGMENT_TYPE_MP4)
-        return;
+        return 0;
 
     get_hls_playlist_name(filename_hls, sizeof(filename_hls),
                           c->dirname, representation_id);
@@ -404,10 +452,8 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
     set_http_options(&http_opts, c);
     ret = dashenc_io_open(s, &c->m3u8_out, temp_filename_hls, &http_opts);
     av_dict_free(&http_opts);
-    if (ret < 0) {
-        handle_io_open_error(s, ret, temp_filename_hls);
-        return;
-    }
+    if (ret < 0)
+        return handle_io_open_error(s, ret, temp_filename_hls);
     for (i = start_index; i < os->nb_segments; i++) {
         Segment *seg = os->segments[i];
         double duration = (double) seg->duration / timescale;
@@ -437,9 +483,8 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
                                 seg->range_length, seg->start_pos, NULL,
                                 c->single_file ? os->initfile : seg->file,
                                 &prog_date_time, 0);
-        if (ret < 0) {
-            av_log(os->ctx, AV_LOG_WARNING, "ff_hls_write_file_entry get error\n");
-        }
+        if (ret < 0 && !c->ignore_io_errors)
+            goto fail;
     }
 
     if (prefetch_url)
@@ -448,26 +493,40 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
     if (final)
         ff_hls_write_end_list(c->m3u8_out);
 
-    dashenc_io_close(s, &c->m3u8_out, temp_filename_hls);
+fail:
+    err = dashenc_io_close(s, &c->m3u8_out, temp_filename_hls);
+    if (ret >= 0)
+        ret = err;
+    if (ret < 0 && !c->ignore_io_errors)
+        return ret;
 
     if (use_rename)
-        ff_rename(temp_filename_hls, filename_hls, os->ctx);
+        ret = ff_rename(temp_filename_hls, filename_hls, os->ctx);
+    return c->ignore_io_errors ? 0 : ret;
 }
 
 static int flush_init_segment(AVFormatContext *s, OutputStream *os)
 {
     DASHContext *c = s->priv_data;
     int ret, range_length;
+    char filename[1024];
 
     ret = flush_dynbuf(c, os, &range_length);
     if (ret < 0)
         return ret;
+    if (os->io_error)
+        return 0;
 
     os->pos = os->init_range_length = range_length;
-    if (!c->single_file) {
-        char filename[1024];
-        snprintf(filename, sizeof(filename), "%s%s", c->dirname, os->initfile);
-        dashenc_io_close(s, &os->out, filename);
+    snprintf(filename, sizeof(filename), "%s%s", c->dirname, os->initfile);
+    if (!c->single_file)
+        return dashenc_io_close(s, &os->out, filename);
+
+    if (os->ctx && os->ctx->pb && os->ctx->pb->error < 0) {
+        ret = os->ctx->pb->error;
+        av_log(s, c->ignore_io_errors ? AV_LOG_WARNING : AV_LOG_ERROR,
+               "Unable to write %s: %s\n", filename, av_err2str(ret));
+        return c->ignore_io_errors ? 0 : ret;
     }
     return 0;
 }
@@ -515,7 +574,7 @@ static void dash_free(AVFormatContext *s)
 }
 
 static void output_segment_list(OutputStream *os, AVIOContext *out, AVFormatContext *s,
-                                int representation_id, int final)
+                                int final)
 {
     DASHContext *c = s->priv_data;
     int i, start_index, start_number;
@@ -583,10 +642,6 @@ static void output_segment_list(OutputStream *os, AVIOContext *out, AVFormatCont
         }
         avio_printf(out, "\t\t\t\t</SegmentList>\n");
     }
-    if (!c->lhls || final) {
-        write_hls_media_playlist(os, s, representation_id, final, NULL);
-    }
-
 }
 
 static char *xmlescape(const char *str) {
@@ -680,6 +735,8 @@ static int write_adaptation_set(AVFormatContext *s, AVIOContext *out, int as_ind
 
         if (os->as_idx - 1 != as_index)
             continue;
+        if (os->io_error && !os->init_range_length)
+            continue;
 
         if (os->bit_rate > 0)
             snprintf(bandwidth_str, sizeof(bandwidth_str), " bandwidth=\"%d\"", os->bit_rate);
@@ -724,7 +781,7 @@ static int write_adaptation_set(AVFormatContext *s, AVIOContext *out, int as_ind
         if (!final && c->ldash && os->gop_size && os->frag_type != FRAG_TYPE_NONE && !(c->profile & MPD_PROFILE_DVB) &&
             (os->frag_type != FRAG_TYPE_DURATION || os->frag_duration != os->seg_duration))
             avio_printf(out, "\t\t\t\t<Resync dT=\"%"PRId64"\" type=\"1\"/>\n", os->gop_size);
-        output_segment_list(os, out, s, i, final);
+        output_segment_list(os, out, s, final);
         avio_printf(out, "\t\t\t</Representation>\n");
     }
     avio_printf(out, "\t\t</AdaptationSet>\n");
@@ -983,6 +1040,25 @@ end:
     return 0;
 }
 
+static int has_hls_video(AVFormatContext *s)
+{
+    DASHContext *c = s->priv_data;
+    int i;
+
+    for (i = 0; i < s->nb_streams; i++) {
+        OutputStream *os = &c->streams[i];
+
+        if (s->streams[i]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
+            continue;
+        if (os->io_error && !os->init_range_length)
+            continue;
+        if (os->segment_type != SEGMENT_TYPE_MP4)
+            continue;
+        return 1;
+    }
+    return 0;
+}
+
 static int write_manifest(AVFormatContext *s, int final)
 {
     DASHContext *c = s->priv_data;
@@ -1100,11 +1176,23 @@ static int write_manifest(AVFormatContext *s, int final)
 
     avio_printf(out, "</MPD>\n");
     avio_flush(out);
-    dashenc_io_close(s, &c->mpd_out, temp_filename);
+    ret = dashenc_io_close(s, &c->mpd_out, temp_filename);
+    if (ret < 0)
+        return ret;
 
     if (use_rename) {
         if ((ret = ff_rename(temp_filename, s->url, s)) < 0)
             return ret;
+    }
+
+    // Publish HLS media playlists after completing the MPD, so their errors
+    // cannot interrupt MPD serialization.
+    if (!c->lhls || final) {
+        for (i = 0; i < s->nb_streams; i++) {
+            ret = write_hls_media_playlist(&c->streams[i], s, i, final, NULL);
+            if (ret < 0)
+                return ret;
+        }
     }
 
     if (c->hls_playlist) {
@@ -1131,7 +1219,7 @@ static int write_manifest(AVFormatContext *s, int final)
 
         ff_hls_write_playlist_version(c->m3u8_out, 7);
 
-        if (c->has_video) {
+        if (has_hls_video(s)) {
             // treat audio streams as alternative renditions for video streams
             const char *audio_group = "A1";
             char audio_codec_str[128] = "\0";
@@ -1143,6 +1231,8 @@ static int write_manifest(AVFormatContext *s, int final)
                 AVStream *st = s->streams[i];
                 OutputStream *os = &c->streams[i];
                 if (st->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+                    continue;
+                if (os->io_error && !os->init_range_length)
                     continue;
                 if (os->segment_type != SEGMENT_TYPE_MP4)
                     continue;
@@ -1166,17 +1256,21 @@ static int write_manifest(AVFormatContext *s, int final)
                 AVStream *st = s->streams[i];
                 OutputStream *os = &c->streams[i];
                 const char *agroup = NULL;
-                int stream_bitrate = os->muxer_overhead;
-                if (os->bit_rate > 0)
-                    stream_bitrate += os->bit_rate;
-                else if (final)
-                    stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
-                else if (os->first_segment_bit_rate > 0)
-                    stream_bitrate += os->first_segment_bit_rate;
+                int stream_bitrate;
+
                 if (st->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
+                    continue;
+                if (os->io_error && !os->init_range_length)
                     continue;
                 if (os->segment_type != SEGMENT_TYPE_MP4)
                     continue;
+                stream_bitrate = os->muxer_overhead;
+                if (os->bit_rate > 0)
+                    stream_bitrate += os->bit_rate;
+                else if (final && c->total_duration > 0)
+                    stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
+                else if (os->first_segment_bit_rate > 0)
+                    stream_bitrate += os->first_segment_bit_rate;
                 av_strlcpy(codec_str, os->codec_str, sizeof(codec_str));
                 if (max_audio_bitrate) {
                     agroup = audio_group;
@@ -1198,17 +1292,21 @@ static int write_manifest(AVFormatContext *s, int final)
                 char codec_str[128];
                 AVStream *st = s->streams[i];
                 OutputStream *os = &c->streams[i];
-                int stream_bitrate = os->muxer_overhead;
-                if (os->bit_rate > 0)
-                    stream_bitrate += os->bit_rate;
-                else if (final)
-                    stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
-                else if (os->first_segment_bit_rate > 0)
-                    stream_bitrate += os->first_segment_bit_rate;
+                int stream_bitrate;
+
                 if (st->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+                    continue;
+                if (os->io_error && !os->init_range_length)
                     continue;
                 if (os->segment_type != SEGMENT_TYPE_MP4)
                     continue;
+                stream_bitrate = os->muxer_overhead;
+                if (os->bit_rate > 0)
+                    stream_bitrate += os->bit_rate;
+                else if (final && c->total_duration > 0)
+                    stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
+                else if (os->first_segment_bit_rate > 0)
+                    stream_bitrate += os->first_segment_bit_rate;
                 av_strlcpy(codec_str, os->codec_str, sizeof(codec_str));
                 get_hls_playlist_name(playlist_file, sizeof(playlist_file), NULL, i);
                 ff_hls_write_stream_info(st, c->m3u8_out, stream_bitrate, 0,
@@ -1217,7 +1315,9 @@ static int write_manifest(AVFormatContext *s, int final)
             }
         }
 
-        dashenc_io_close(s, &c->m3u8_out, temp_filename);
+        ret = dashenc_io_close(s, &c->m3u8_out, temp_filename);
+        if (ret < 0)
+            return ret;
         if (use_rename)
             if ((ret = ff_rename(temp_filename, filename_hls, s)) < 0)
                 return ret;
@@ -1802,7 +1902,10 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
         int range_length, index_length = 0;
         int64_t duration;
 
-        if (!os->packets_written)
+        if (!os->packets_written || os->io_error)
+            continue;
+
+        if (!c->single_file && !os->temp_path[0])
             continue;
 
         // Flush the single stream that got a keyframe right now.
@@ -1827,11 +1930,23 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
         if (ret < 0)
             break;
         os->packets_written = 0;
+        if (c->single_file && c->ignore_io_errors && !range_length)
+            continue;
 
         if (c->single_file) {
+            ret = (os->ctx && os->ctx->pb) ? os->ctx->pb->error : 0;
+            if (ret < 0) {
+                av_log(s, c->ignore_io_errors ? AV_LOG_WARNING : AV_LOG_ERROR,
+                       "Unable to write %s: %s\n", os->full_path, av_err2str(ret));
+                if (!c->ignore_io_errors)
+                    break;
+                ret = 0;
+            }
             find_index_range(s, os->full_path, os->pos, &index_length);
         } else {
-            dashenc_io_close(s, &os->out, os->temp_path);
+            ret = dashenc_io_close(s, &os->out, os->temp_path);
+            if (ret < 0)
+                break;
 
             if (use_rename) {
                 ret = ff_rename(os->temp_path, os->full_path, os->ctx);
@@ -1870,9 +1985,17 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
     if (final) {
         for (i = 0; i < s->nb_streams; i++) {
             OutputStream *os = &c->streams[i];
-            if (os->ctx && os->ctx_inited) {
+            if (os->ctx && os->ctx_inited && !os->io_error) {
                 int64_t file_size = avio_tell(os->ctx->pb);
-                av_write_trailer(os->ctx);
+                int err = av_write_trailer(os->ctx);
+                if (c->single_file && os->ctx->pb && os->ctx->pb->error < 0)
+                    err = os->ctx->pb->error;
+                if (err < 0) {
+                    av_log(s, c->ignore_io_errors ? AV_LOG_WARNING : AV_LOG_ERROR,
+                           "Unable to write %s: %s\n", os->full_path, av_err2str(err));
+                    if (!c->ignore_io_errors && ret >= 0)
+                        ret = err;
+                }
                 if (c->global_sidx) {
                     int j, start_index, start_number;
                     int64_t sidx_size = avio_tell(os->ctx->pb) - file_size;
@@ -1940,6 +2063,9 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
     AdaptationSet *as = &c->as[os->as_idx - 1];
     int64_t seg_end_duration, elapsed_duration;
     int ret;
+
+    if (os->io_error)
+        return 0;
 
     ret = update_stream_extradata(s, os, pkt, &st->avg_frame_rate);
     if (ret < 0)
@@ -2054,7 +2180,7 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
                         sizeof(os->producer_reference_time_str),
                         os->producer_reference_time.wallclock);
 
-        if ((ret = dash_flush(s, 0, pkt->stream_index)) < 0)
+        if ((ret = dash_flush(s, 0, pkt->stream_index)) < 0 || os->io_error)
             return ret;
     }
 
@@ -2099,16 +2225,21 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
         c->max_gop_size = FFMAX(c->max_gop_size, os->gop_size);
     }
 
-    if ((ret = ff_write_chained(os->ctx, 0, pkt, s, 0)) < 0)
+    if ((ret = ff_write_chained(os->ctx, 0, pkt, s, 0)) < 0) {
+        if (c->single_file && c->ignore_io_errors && ret == os->ctx->pb->error) {
+            ignore_single_file_error(c, os);
+            return 0;
+        }
         return ret;
+    }
 
     os->packets_written++;
     os->total_pkt_size += pkt->size;
     os->total_pkt_duration += pkt->duration;
     os->last_flags = pkt->flags;
 
-    if (!os->init_range_length)
-        flush_init_segment(s, os);
+    if (!os->init_range_length && (ret = flush_init_segment(s, os)) < 0)
+        return ret;
 
     //open the output context when the first frame of a segment is ready
     if (!c->single_file && os->packets_written == 1) {
@@ -2135,13 +2266,14 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
         // in streaming mode, the segments are available for playing
         // before fully written but the manifest is needed so that
         // clients and discover the segment filenames.
-        if (c->streaming) {
-            write_manifest(s, 0);
-        }
+        if (c->streaming && (ret = write_manifest(s, 0)) < 0)
+            return ret;
 
         if (c->lhls) {
             char *prefetch_url = use_rename ? NULL : os->filename;
-            write_hls_media_playlist(os, s, pkt->stream_index, 0, prefetch_url);
+            ret = write_hls_media_playlist(os, s, pkt->stream_index, 0, prefetch_url);
+            if (ret < 0)
+                return ret;
         }
     }
 
@@ -2154,6 +2286,14 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
         if (os->out) {
             avio_write(os->out, buf + os->written_len, len - os->written_len);
             avio_flush(os->out);
+            if (os->out->error < 0) {
+                int err = os->out->error;
+                av_log(s, c->ignore_io_errors ? AV_LOG_WARNING : AV_LOG_ERROR,
+                       "Unable to write %s: %s\n", os->temp_path, av_err2str(err));
+                if (!c->ignore_io_errors)
+                    return err;
+                ff_format_io_close(s, &os->out);
+            }
         }
         os->written_len = len;
     }
@@ -2164,7 +2304,7 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
 static int dash_write_trailer(AVFormatContext *s)
 {
     DASHContext *c = s->priv_data;
-    int i;
+    int i, ret;
 
     if (s->nb_streams > 0) {
         OutputStream *os = &c->streams[0];
@@ -2178,7 +2318,7 @@ static int dash_write_trailer(AVFormatContext *s)
                                          s->streams[0]->time_base,
                                          AV_TIME_BASE_Q);
     }
-    dash_flush(s, 1, -1);
+    ret = dash_flush(s, 1, -1);
 
     if (c->remove_at_exit) {
         for (i = 0; i < s->nb_streams; ++i) {
@@ -2200,7 +2340,7 @@ static int dash_write_trailer(AVFormatContext *s)
         }
     }
 
-    return 0;
+    return ret;
 }
 
 static int dash_check_bitstream(AVFormatContext *s, AVStream *st,

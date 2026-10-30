@@ -153,6 +153,11 @@ static float search(FOCContext *foc, int pass, int maxpass, int xmin, int xmax, 
 {
     int x, y;
 
+    /* The rounding in downscale() and of the window below can leave the coarse
+     * limit past the top level limit divided by two, so bound every level. */
+    xmax = FFMIN(xmax, foc->haystack_frame[pass]->width  - foc->needle_frame[pass]->width);
+    ymax = FFMIN(ymax, foc->haystack_frame[pass]->height - foc->needle_frame[pass]->height);
+
     if (pass + 1 <= maxpass) {
         int sub_x, sub_y;
         /* An empty window finds nothing and leaves sub_x and sub_y unset. */

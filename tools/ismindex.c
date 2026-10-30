@@ -785,20 +785,36 @@ int main(int argc, char **argv)
     const char *path_prefix = "", *ismc_prefix = "";
     const char *output_prefix = "";
     char output_prefix_buf[2048];
-    int split = 0, ismf = 0, i;
+    int split = 0, ismf = 0, i, ret = 0;
     struct Tracks tracks = { 0, .video_track = -1, .audio_track = -1 };
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n")) {
+            if (i + 1 >= argc) {
+                ret = usage(argv[0], 1);
+                goto fail;
+            }
             basename = argv[i + 1];
             i++;
         } else if (!strcmp(argv[i], "-path-prefix")) {
+            if (i + 1 >= argc) {
+                ret = usage(argv[0], 1);
+                goto fail;
+            }
             path_prefix = argv[i + 1];
             i++;
         } else if (!strcmp(argv[i], "-ismc-prefix")) {
+            if (i + 1 >= argc) {
+                ret = usage(argv[0], 1);
+                goto fail;
+            }
             ismc_prefix = argv[i + 1];
             i++;
         } else if (!strcmp(argv[i], "-output")) {
+            if (i + 1 >= argc) {
+                ret = usage(argv[0], 1);
+                goto fail;
+            }
             output_prefix = argv[i + 1];
             i++;
             if (output_prefix[strlen(output_prefix) - 1] != '/') {
@@ -828,7 +844,8 @@ int main(int argc, char **argv)
                                path_prefix, ismc_prefix);
     output_client_manifest(&tracks, basename, output_prefix, split);
 
+fail:
     clean_tracks(&tracks);
 
-    return 0;
+    return ret;
 }

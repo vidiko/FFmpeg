@@ -680,12 +680,17 @@ static int qsv_export_film_grain(AVCodecContext *avctx, mfxExtAV1FilmGrainParam 
         aom->ar_coeffs_uv[1][i] = ext_param->ArCoeffsCrPlus128[i] - 128;
     }
 
-    aom->uv_mult[0] = ext_param->CbMult;
-    aom->uv_mult[1] = ext_param->CrMult;
-    aom->uv_mult_luma[0] = ext_param->CbLumaMult;
-    aom->uv_mult_luma[1] = ext_param->CrLumaMult;
-    aom->uv_offset[0] = ext_param->CbOffset;
-    aom->uv_offset[1] = ext_param->CrOffset;
+    if (aom->num_uv_points[0]) {
+        aom->uv_mult[0] = ext_param->CbMult - 128;
+        aom->uv_mult_luma[0] = ext_param->CbLumaMult - 128;
+        aom->uv_offset[0] = ext_param->CbOffset - 256;
+    }
+
+    if (aom->num_uv_points[1]) {
+        aom->uv_mult[1] = ext_param->CrMult - 128;
+        aom->uv_mult_luma[1] = ext_param->CrLumaMult - 128;
+        aom->uv_offset[1] = ext_param->CrOffset - 256;
+    }
 
     return 0;
 }

@@ -1774,7 +1774,10 @@ int ff_rtsp_make_setup_request(AVFormatContext *s, const char *host, int port,
                         "RealChallenge2: %s, sd=%s\r\n",
                         rt->session_id, real_res, real_csum);
         }
-        ff_rtsp_send_cmd(s, "SETUP", rtsp_st->control_url, cmd, reply, NULL);
+        err = ff_rtsp_send_cmd(s, "SETUP", rtsp_st->control_url, cmd, reply,
+                               NULL);
+        if (err < 0)
+            goto fail;
         if (reply->status_code == 461 /* Unsupported protocol */ && i == 0) {
             err = 1;
             goto fail;

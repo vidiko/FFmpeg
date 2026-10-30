@@ -400,9 +400,37 @@ fate-matroska-stereo3d-metadata: CMD = tmp=tests/data/fate/matroska-stereo3d-met
    -of default=nw=1 $$out; \
   ret=$$?; rm -f $$tmp $$out; test $$ret -eq 0
 
+# Generated stream durations must keep a SimpleTag even when its fixed-width
+# value cannot represent the duration.
+FATE_MATROSKA_DURATION_TAG-$(call ALLYES, FILE_PROTOCOL LAVFI_INDEV ANULLSRC_FILTER \
+                                               ARESAMPLE_FILTER PCM_U8_DECODER \
+                                               PCM_S16LE_ENCODER MATROSKA_MUXER \
+                                               MATROSKA_DEMUXER) \
+                           += fate-matroska-duration-tag-short fate-matroska-duration-tag-100h \
+                              fate-matroska-duration-tag-1000h
+fate-matroska-duration-tag-short: CMD = run_with_temp \
+  "$(FFMPEG) -nostdin -hide_banner -loglevel error -f lavfi -i anullsrc=r=8000:cl=mono \
+   -t 0.1 -c:a pcm_s16le -fflags +bitexact -flags:a +bitexact \
+   -metadata:s:a encoder= -f matroska -y" \
+  "ffprobe$(PROGSSUF)$(EXESUF) -v error -show_entries stream_tags=DURATION:format=duration \
+   -of default=nw=1" mkv
+fate-matroska-duration-tag-100h: CMD = run_with_temp \
+  "$(FFMPEG) -nostdin -hide_banner -loglevel error -f lavfi -i anullsrc=r=8000:cl=mono \
+   -t 0.1 -c:a pcm_s16le -fflags +bitexact -flags:a +bitexact \
+   -metadata:s:a encoder= -output_ts_offset 360000 -f matroska -y" \
+  "ffprobe$(PROGSSUF)$(EXESUF) -v error -show_entries stream_tags=DURATION:format=duration \
+   -of default=nw=1" mkv
+fate-matroska-duration-tag-1000h: CMD = run_with_temp \
+  "$(FFMPEG) -nostdin -hide_banner -loglevel error -f lavfi -i anullsrc=r=8000:cl=mono \
+   -t 0.1 -c:a pcm_s16le -fflags +bitexact -flags:a +bitexact \
+   -metadata:s:a encoder= -output_ts_offset 3600000 -f matroska -y" \
+  "ffprobe$(PROGSSUF)$(EXESUF) -v error -show_entries stream_tags=DURATION:format=duration \
+   -of default=nw=1" mkv
+
 FATE_SAMPLES_AVCONV += $(FATE_MATROSKA-yes)
 FATE_SAMPLES_FFPROBE += $(FATE_MATROSKA_FFPROBE-yes)
 FATE_SAMPLES_FFMPEG_FFPROBE += $(FATE_MATROSKA_FFMPEG_FFPROBE-yes)
 FATE_FFMPEG_FFPROBE += $(FATE_MATROSKA_STEREO3D-yes)
+FATE_FFMPEG_FFPROBE += $(FATE_MATROSKA_DURATION_TAG-yes)
 
-fate-matroska: $(FATE_MATROSKA-yes) $(FATE_MATROSKA_FFPROBE-yes) $(FATE_MATROSKA_FFMPEG_FFPROBE-yes) $(FATE_MATROSKA_STEREO3D-yes)
+fate-matroska: $(FATE_MATROSKA-yes) $(FATE_MATROSKA_FFPROBE-yes) $(FATE_MATROSKA_FFMPEG_FFPROBE-yes) $(FATE_MATROSKA_STEREO3D-yes) $(FATE_MATROSKA_DURATION_TAG-yes)

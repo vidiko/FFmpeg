@@ -3464,20 +3464,29 @@ after_cues:
             if (track->duration_offset > 0) {
                 double duration_sec = track->duration * av_q2d(st->time_base);
                 char duration_string[DURATION_STRING_LENGTH + 1] = "";
+                int duration_len = -1;
                 ebml_master simpletag;
 
                 av_log(s, AV_LOG_DEBUG, "stream %d end duration = %" PRIu64 "\n", i,
                        track->duration);
 
+                if (isfinite(duration_sec) && duration_sec >= 0 &&
+                    duration_sec <= INT_MAX)
+                    duration_len = snprintf(duration_string, sizeof(duration_string),
+                                            "%02d:%02d:%012.9f",
+                                            (int)duration_sec / 3600,
+                                            ((int)duration_sec / 60) % 60,
+                                            fmod(duration_sec, 60));
+                if (duration_len < 0 || duration_len > DURATION_STRING_LENGTH) {
+                    av_log(s, AV_LOG_WARNING,
+                           "Writing empty DURATION tag for unrepresentable duration\n");
+                    memset(duration_string, 0, sizeof(duration_string));
+                }
+
                 avio_seek(tags_bc, track->duration_offset, SEEK_SET);
                 simpletag = start_ebml_master(tags_bc, MATROSKA_ID_SIMPLETAG,
                                               2 + 1 + 8 + 23);
                 put_ebml_string(tags_bc, MATROSKA_ID_TAGNAME, "DURATION");
-
-                snprintf(duration_string, sizeof(duration_string), "%02d:%02d:%012.9f",
-                         (int) duration_sec / 3600, ((int) duration_sec / 60) % 60,
-                         fmod(duration_sec, 60));
-
                 put_ebml_binary(tags_bc, MATROSKA_ID_TAGSTRING,
                                 duration_string, DURATION_STRING_LENGTH);
                 end_ebml_master(tags_bc, simpletag);

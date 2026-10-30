@@ -195,8 +195,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
 
     foc->haystack_frame[0] = av_frame_clone(in);
+    if (!foc->haystack_frame[0]) {
+        av_frame_free(&in);
+        return AVERROR(ENOMEM);
+    }
     for (i=1; i<foc->mipmaps; i++) {
         foc->haystack_frame[i] = downscale(foc->haystack_frame[i-1]);
+        if (!foc->haystack_frame[i]) {
+            for (i = 0; i < foc->mipmaps; i++)
+                av_frame_free(&foc->haystack_frame[i]);
+            av_frame_free(&in);
+            return AVERROR(ENOMEM);
+        }
     }
 
     best_score = search(foc, 0, 0,
@@ -272,6 +282,8 @@ static av_cold int init(AVFilterContext *ctx)
     }
 
     foc->needle_frame[0] = av_frame_clone(foc->obj_frame);
+    if (!foc->needle_frame[0])
+        return AVERROR(ENOMEM);
     for (i = 1; i < foc->mipmaps; i++) {
         foc->needle_frame[i] = downscale(foc->needle_frame[i-1]);
         if (!foc->needle_frame[i])

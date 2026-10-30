@@ -468,7 +468,7 @@ static int add_fragment(OutputStream *os, const char *file, const char *infofile
 static int copy_moof(AVFormatContext *s, const char* infile, const char *outfile, int64_t size)
 {
     AVIOContext *in, *out;
-    int ret = 0;
+    int ret = 0, err;
     if ((ret = s->io_open(s, &in, infile, AVIO_FLAG_READ, NULL)) < 0)
         return ret;
     if ((ret = s->io_open(s, &out, outfile, AVIO_FLAG_WRITE, NULL)) < 0) {
@@ -487,7 +487,11 @@ static int copy_moof(AVFormatContext *s, const char* infile, const char *outfile
         size -= n;
     }
     avio_flush(out);
-    ff_format_io_close(s, &out);
+    if (!ret)
+        ret = out->error;
+    err = ff_format_io_close(s, &out);
+    if (!ret)
+        ret = err;
     ff_format_io_close(s, &in);
     return ret;
 }
@@ -542,7 +546,9 @@ static int ism_flush(AVFormatContext *s, int final)
 
         snprintf(header_filename, sizeof(header_filename), "%s/FragmentInfo(%s=%"PRIu64")", os->dirname, os->stream_type_tag, start_ts);
         snprintf(target_filename, sizeof(target_filename), "%s/Fragments(%s=%"PRIu64")", os->dirname, os->stream_type_tag, start_ts);
-        copy_moof(s, filename, header_filename, moof_size);
+        ret = copy_moof(s, filename, header_filename, moof_size);
+        if (ret < 0)
+            break;
         ret = ff_rename(filename, target_filename, s);
         if (ret < 0)
             break;

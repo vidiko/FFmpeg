@@ -144,7 +144,7 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
     num_sets = get_bits(gb, 3) + 1;
     for (n = 0; n < num_sets; n++) {
         int payload_4byte, payload_size, set_idx, apply_units_log2, vsc_flag;
-        int predict_scaling, predict_y_scaling, predict_uv_scaling[2];
+        int predict_scaling, predict_y_scaling, predict_uv_scaling[2] = { 0 };
         int payload_bits, start_position;
         size_t fgp_size;
 
@@ -218,23 +218,23 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
 
         predict_y_scaling = predict_scaling ? get_bits1(gb) : 0;
         if (predict_y_scaling) {
-            int y_scale, y_offset, bits_res;
+            int y_scale, y_offset, bits_res, res[14], pred, granularity;
             y_scale = get_bits(gb, 9) - 256;
             y_offset = get_bits(gb, 9) - 256;
             bits_res = get_bits(gb, 3);
+            aom->num_y_points = ref->codec.aom.num_y_points;
             if (bits_res) {
-                int res[14], pred, granularity;
-                aom->num_y_points = ref->codec.aom.num_y_points;
                 for (i = 0; i < aom->num_y_points; i++)
                     res[i] = get_bits(gb, bits_res);
                 granularity = get_bits(gb, 3);
-                for (i = 0; i < aom->num_y_points; i++) {
-                    pred = ref->codec.aom.y_points[i][1];
-                    pred = ((pred * y_scale + 8) >> 4) + y_offset;
+            }
+            for (i = 0; i < aom->num_y_points; i++) {
+                pred = ref->codec.aom.y_points[i][1];
+                pred = ((pred * y_scale + 8) >> 4) + y_offset;
+                if (bits_res)
                     pred += (res[i] - (1 << (bits_res - 1))) * granularity;
-                    aom->y_points[i][0] = ref->codec.aom.y_points[i][0];
-                    aom->y_points[i][1] = av_clip_uint8(pred);
-                }
+                aom->y_points[i][0] = ref->codec.aom.y_points[i][0];
+                aom->y_points[i][1] = av_clip_uint8(pred);
             }
         } else {
             aom->num_y_points = get_bits(gb, 4);
@@ -266,26 +266,26 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                 for (uv = 0; uv < 2; uv++) {
                     predict_uv_scaling[uv] = predict_scaling ? get_bits1(gb) : 0;
                     if (predict_uv_scaling[uv]) {
-                        int uv_scale, uv_offset, bits_res;
+                        int uv_scale, uv_offset, bits_res, res[10], pred, granularity;
                         uv_scale = get_bits(gb, 9) - 256;
                         uv_offset = get_bits(gb, 9) - 256;
                         bits_res = get_bits(gb, 3);
                         aom->uv_mult[uv] = ref->codec.aom.uv_mult[uv];
                         aom->uv_mult_luma[uv] = ref->codec.aom.uv_mult_luma[uv];
                         aom->uv_offset[uv] = ref->codec.aom.uv_offset[uv];
+                        aom->num_uv_points[uv] = ref->codec.aom.num_uv_points[uv];
                         if (bits_res) {
-                            int res[10], pred, granularity;
-                            aom->num_uv_points[uv] = ref->codec.aom.num_uv_points[uv];
                             for (i = 0; i < aom->num_uv_points[uv]; i++)
                                 res[i] = get_bits(gb, bits_res);
                             granularity = get_bits(gb, 3);
-                            for (i = 0; i < aom->num_uv_points[uv]; i++) {
-                                pred = ref->codec.aom.uv_points[uv][i][1];
-                                pred = ((pred * uv_scale + 8) >> 4) + uv_offset;
+                        }
+                        for (i = 0; i < aom->num_uv_points[uv]; i++) {
+                            pred = ref->codec.aom.uv_points[uv][i][1];
+                            pred = ((pred * uv_scale + 8) >> 4) + uv_offset;
+                            if (bits_res)
                                 pred += (res[i] - (1 << (bits_res - 1))) * granularity;
-                                aom->uv_points[uv][i][0] = ref->codec.aom.uv_points[uv][i][0];
-                                aom->uv_points[uv][i][1] = av_clip_uint8(pred);
-                            }
+                            aom->uv_points[uv][i][0] = ref->codec.aom.uv_points[uv][i][0];
+                            aom->uv_points[uv][i][1] = av_clip_uint8(pred);
                         }
                     } else {
                         int bits_inc, bits_scaling, uv_offset;
@@ -311,15 +311,17 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
         aom->scaling_shift = get_bits(gb, 2) + 8;
         aom->ar_coeff_lag = get_bits(gb, 2);
         num_y_coeffs = 2 * aom->ar_coeff_lag * (aom->ar_coeff_lag + 1);
-        if (aom->num_y_points) {
+        if (aom->num_y_points || predict_y_scaling) {
             int ar_bits = get_bits(gb, 2) + 5;
             for (i = 0; i < num_y_coeffs; i++)
                 aom->ar_coeffs_y[i] = get_bits(gb, ar_bits) - (1 << (ar_bits - 1));
         }
         for (uv = 0; uv < 2; uv++) {
-            if (aom->chroma_scaling_from_luma || aom->num_uv_points[uv]) {
+            if (aom->chroma_scaling_from_luma || aom->num_uv_points[uv] ||
+                predict_uv_scaling[uv]) {
                 int ar_bits = get_bits(gb, 2) + 5;
-                for (i = 0; i < num_y_coeffs + !!aom->num_y_points; i++)
+                for (i = 0; i < num_y_coeffs +
+                                (aom->num_y_points || predict_y_scaling); i++)
                     aom->ar_coeffs_uv[uv][i] = get_bits(gb, ar_bits) - (1 << (ar_bits - 1));
             }
         }

@@ -51,6 +51,11 @@ fate-golomb: libavcodec/tests/golomb$(EXESUF)
 fate-golomb: CMD = run libavcodec/tests/golomb$(EXESUF)
 fate-golomb: CMP = null
 
+FATE_LIBAVCODEC-$(CONFIG_ITUT_T35) += fate-aom-film-grain
+fate-aom-film-grain: libavcodec/tests/aom_film_grain$(EXESUF)
+fate-aom-film-grain: CMD = run libavcodec/tests/aom_film_grain$(EXESUF)
+fate-aom-film-grain: REF = $(SRC_PATH)/tests/ref/fate/aom-film-grain
+
 FATE_LIBAVCODEC-$(CONFIG_DXV_ENCODER) += fate-hashtable
 fate-hashtable: libavcodec/tests/hashtable$(EXESUF)
 fate-hashtable: CMD = run libavcodec/tests/hashtable$(EXESUF)

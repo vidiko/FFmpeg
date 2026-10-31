@@ -1398,6 +1398,7 @@ TESTPROGS-$(CONFIG_AV1_VAAPI_ENCODER)     += av1_levels
 TESTPROGS-$(CONFIG_CABAC)                 += cabac
 TESTPROGS-$(CONFIG_CELP_MATH)             += celp_math
 TESTPROGS-$(CONFIG_GOLOMB)                += golomb
+TESTPROGS-$(CONFIG_ITUT_T35)              += aom_film_grain
 TESTPROGS-$(CONFIG_IDCTDSP)               += dct
 TESTPROGS-$(CONFIG_DXV_ENCODER)           += hashtable
 TESTPROGS-$(CONFIG_MJPEG_ENCODER)         += mjpegenc_huffman

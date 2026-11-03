@@ -41,25 +41,19 @@ static void put_coeffs(PutBitContext *bw, int count, int base)
         put_bits(bw, 5, (base + i + 16) & 31);
 }
 
-static void put_points(PutBitContext *bw, int uv, int empty)
+static void put_explicit_points(PutBitContext *bw, int uv, int count)
 {
     int i;
 
-    put_bits(bw, 4, empty ? 0 : 2);
-    if (empty) {
-        if (uv) {
-            put_bits(bw, 3, 3); // 4-bit point increments
-            put_bits(bw, 2, 1); // 6-bit scaling values
-            put_bits(bw, 8, 32);
-        }
+    put_bits(bw, 4, count);
+    if (!count)
         return;
-    }
 
     put_bits(bw, 3, 3); // 4-bit point increments
     put_bits(bw, 2, 1); // 6-bit scaling values
     if (uv)
         put_bits(bw, 8, 32);
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < count; i++) {
         put_bits(bw, 4, 8 + 4 * i);
         put_bits(bw, 6, 12 + 8 * i);
     }
@@ -119,7 +113,7 @@ static void put_set(PutBitContext *bw, int component, int bits_res, int referenc
             put_predicted_points(bw, bits_res);
     }
     if (!predict_y)
-        put_points(bw, 0, !y_points);
+        put_explicit_points(bw, 0, y_points ? 2 : 0);
 
     put_bits(bw, 1, 0); // chroma_scaling_from_luma
     for (uv = 0; uv < 2; uv++) {
@@ -128,7 +122,7 @@ static void put_set(PutBitContext *bw, int component, int bits_res, int referenc
         if (predict_uv[uv])
             put_predicted_points(bw, bits_res);
         else
-            put_points(bw, 1, !uv_points[uv]);
+            put_explicit_points(bw, 1, uv_points[uv] ? 2 : 0);
     }
 
     put_bits(bw, 2, 1); // scaling_shift = 9
@@ -170,6 +164,70 @@ static int build_payload(uint8_t *payload, int component, int bits_res)
     flush_put_bits(&bw);
     put_set(&bw, component, bits_res, 1);
     put_set(&bw, component, bits_res, 0);
+
+    return put_bytes_output(&bw);
+}
+
+static int build_explicit_payload(uint8_t *payload, int y_points,
+                                  int cb_points, int cr_points)
+{
+    PutBitContext bw;
+    int uv_points[2] = { cb_points, cr_points };
+    uint8_t *start;
+    int payload_size;
+    int uv;
+
+    init_put_bits(&bw, payload, 128);
+
+    put_bits(&bw, 1, 1);
+    put_bits(&bw, 4, 0);
+    put_bits(&bw, 3, 0); // one parameter set
+    flush_put_bits(&bw);
+
+    start = put_bits_ptr(&bw);
+    put_bits(&bw, 1, 0); // 8-bit payload size
+    put_bits(&bw, 8, 0); // patched below
+    put_bits(&bw, 3, 0);
+    put_bits(&bw, 1, 1); // AV1 film grain
+    put_bits(&bw, 16, 1);
+    put_bits(&bw, 1, 1); // update_grain
+    put_bits(&bw, 4, 0);
+    put_bits(&bw, 12, 64);
+    put_bits(&bw, 12, 32);
+    put_bits(&bw, 1, 0); // not luma only
+    put_bits(&bw, 1, 0); // subsampling_x = 0 (4:4:4)
+    put_bits(&bw, 1, 0); // subsampling_y = 0
+    put_bits(&bw, 1, 0); // no video signal characteristics
+    put_bits(&bw, 1, 0); // no predicted scaling
+    put_explicit_points(&bw, 0, y_points);
+    put_bits(&bw, 1, 0); // chroma_scaling_from_luma
+    for (uv = 0; uv < 2; uv++)
+        put_explicit_points(&bw, 1, uv_points[uv]);
+
+    put_bits(&bw, 2, 1); // scaling_shift = 9
+    put_bits(&bw, 2, 1); // ar_coeff_lag = 1
+    if (y_points)
+        put_coeffs(&bw, 4, -4);
+    for (uv = 0; uv < 2; uv++) {
+        if (uv_points[uv])
+            put_coeffs(&bw, 4 + !!y_points, 4 + uv * 8);
+    }
+    put_bits(&bw, 2, 1); // ar_coeff_shift = 7
+    put_bits(&bw, 2, 2); // grain_scale_shift = 2
+    for (uv = 0; uv < 2; uv++) {
+        if (uv_points[uv]) {
+            put_bits(&bw, 8, 130 + uv);
+            put_bits(&bw, 8, 127 - uv);
+            put_bits(&bw, 9, 259 + uv);
+        }
+    }
+    put_bits(&bw, 1, 1);
+    put_bits(&bw, 1, 0);
+
+    flush_put_bits(&bw);
+    payload_size = put_bits_ptr(&bw) - start;
+    start[0] = payload_size >> 1;
+    start[1] |= (payload_size & 1) << 7;
 
     return put_bytes_output(&bw);
 }
@@ -229,6 +287,30 @@ static void run_case(const char *name, int component, int bits_res)
     ff_aom_uninit_film_grain_params(&sets);
 }
 
+static void run_explicit_case(const char *name, int y_points,
+                              int cb_points, int cr_points)
+{
+    AVFilmGrainAFGS1Params sets = { 0 };
+    uint8_t payload[128];
+    AVFilmGrainAOMParams *aom;
+    int ret = ff_aom_parse_film_grain_sets(&sets, payload,
+                                            build_explicit_payload(payload, y_points,
+                                                                   cb_points, cr_points));
+
+    printf("%s: ret=%d\n", name, ret);
+    if (ret || !sets.sets[0]) {
+        printf("  set=missing\n");
+        ff_aom_uninit_film_grain_params(&sets);
+        return;
+    }
+
+    aom = &((AVFilmGrainParams *)sets.sets[0]->data)->codec.aom;
+    print_points("y", aom->num_y_points, aom->y_points);
+    print_points("cb", aom->num_uv_points[0], aom->uv_points[0]);
+    print_points("cr", aom->num_uv_points[1], aom->uv_points[1]);
+    ff_aom_uninit_film_grain_params(&sets);
+}
+
 int main(void)
 {
     run_case("y-zero", Y, 0);
@@ -238,6 +320,9 @@ int main(void)
     run_case("cr-zero", CR, 0);
     run_case("cr-nonzero", CR, 2);
     run_case("empty-reference", EMPTY, 0);
+    run_explicit_case("explicit-y-cb0-cr", 1, 0, 1);
+    run_explicit_case("explicit-y-cb-cr0", 1, 1, 0);
+    run_explicit_case("explicit-y-cb0-cr0", 1, 0, 0);
 
     return 0;
 }

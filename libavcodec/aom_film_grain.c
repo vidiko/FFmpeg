@@ -295,6 +295,8 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                         aom->num_uv_points[uv] = get_bits(gb, 4);
                         if (aom->num_uv_points[uv] > 10)
                             goto error;
+                        if (!aom->num_uv_points[uv])
+                            continue;
                         bits_inc = get_bits(gb, 3) + 1;
                         bits_scaling = get_bits(gb, 2) + 5;
                         uv_offset = get_bits(gb, 8);

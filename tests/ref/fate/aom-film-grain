@@ -73,3 +73,7 @@ explicit-y-cb0-cr0: ret=0
   y[1] 8/12
   cb[0]
   cr[0]
+padded-apply-grain-zero: ret=0
+  y[2] 8/12 20/20
+padded-update-grain-zero: ret=0
+  y[2] 8/12 20/20

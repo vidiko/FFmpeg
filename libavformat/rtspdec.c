@@ -152,9 +152,12 @@ static inline int check_sessionid(AVFormatContext *s,
         return 0;
     }
     if (strcmp(session_id, request->session_id)) {
+        int ret;
         av_log(s, AV_LOG_ERROR, "Unexpected session-id %s\n",
                request->session_id);
-        rtsp_send_reply(s, RTSP_STATUS_SESSION, NULL, request->seq);
+        ret = rtsp_send_reply(s, RTSP_STATUS_SESSION, NULL, request->seq);
+        if (ret < 0)
+            return ret;
         return AVERROR_STREAM_NOT_FOUND;
     }
     return 0;

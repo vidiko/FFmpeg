@@ -19,11 +19,11 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 
 #include "libavutil/film_grain_params.h"
 
 #include "libavcodec/aom_film_grain.h"
+#include "libavcodec/put_bits.h"
 
 enum {
     Y,
@@ -32,37 +32,16 @@ enum {
     EMPTY,
 };
 
-typedef struct BitWriter {
-    uint8_t data[128];
-    int bits;
-} BitWriter;
-
-static void put_bits(BitWriter *bw, int bits, unsigned value)
-{
-    while (bits--) {
-        int pos = bw->bits++;
-        bw->data[pos >> 3] |= ((value >> bits) & 1) << (7 - (pos & 7));
-    }
-}
-
-static void put_bits_at(BitWriter *bw, int pos, int bits, unsigned value)
-{
-    while (bits--) {
-        int bit = pos++;
-        bw->data[bit >> 3] |= ((value >> bits) & 1) << (7 - (bit & 7));
-    }
-}
-
-static void put_coeffs(BitWriter *bw, int count, int base)
+static void put_coeffs(PutBitContext *bw, int count, int base)
 {
     int i;
 
     put_bits(bw, 2, 0); // 5-bit signed coefficients
     for (i = 0; i < count; i++)
-        put_bits(bw, 5, base + i + 16);
+        put_bits(bw, 5, (base + i + 16) & 31);
 }
 
-static void put_points(BitWriter *bw, int uv, int empty)
+static void put_points(PutBitContext *bw, int uv, int empty)
 {
     int i;
 
@@ -86,7 +65,7 @@ static void put_points(BitWriter *bw, int uv, int empty)
     }
 }
 
-static void put_predicted_points(BitWriter *bw, int bits_res)
+static void put_predicted_points(PutBitContext *bw, int bits_res)
 {
     int i;
 
@@ -101,9 +80,10 @@ static void put_predicted_points(BitWriter *bw, int bits_res)
     put_bits(bw, 3, 2);
 }
 
-static void put_set(BitWriter *bw, int component, int bits_res, int reference)
+static void put_set(PutBitContext *bw, int component, int bits_res, int reference)
 {
-    int start = bw->bits;
+    uint8_t *start = put_bits_ptr(bw);
+    int payload_size;
     int predict_y = !reference && (component == Y || component == EMPTY);
     int predict_uv[2] = {
         !reference && (component == CB || component == EMPTY),
@@ -171,23 +151,27 @@ static void put_set(BitWriter *bw, int component, int bits_res, int reference)
     put_bits(bw, 1, 1);
     put_bits(bw, 1, 0);
 
-    put_bits_at(bw, start + 1, 8, (bw->bits - start + 7) / 8);
-    while (bw->bits & 7)
-        put_bits(bw, 1, 0);
+    flush_put_bits(bw);
+    payload_size = put_bits_ptr(bw) - start;
+    // The byte-aligned payload stores its size in bits 1 through 8.
+    start[0] = payload_size >> 1;
+    start[1] |= (payload_size & 1) << 7;
 }
 
 static int build_payload(uint8_t *payload, int component, int bits_res)
 {
-    BitWriter bw = { 0 };
+    PutBitContext bw;
+
+    init_put_bits(&bw, payload, 128);
 
     put_bits(&bw, 1, 1);
     put_bits(&bw, 4, 0);
     put_bits(&bw, 3, 1); // two parameter sets
+    flush_put_bits(&bw);
     put_set(&bw, component, bits_res, 1);
     put_set(&bw, component, bits_res, 0);
-    memcpy(payload, bw.data, (bw.bits + 7) / 8);
 
-    return (bw.bits + 7) / 8;
+    return put_bytes_output(&bw);
 }
 
 static void print_points(const char *name, int count, const uint8_t points[][2])

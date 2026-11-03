@@ -406,6 +406,29 @@ static const enum AVPixelFormat pixel_fmts[] = {
     AV_PIX_FMT_NONE
 };
 
+static void scale_points(NormalizeContext *s)
+{
+    const int scale = 1 << (s->depth - 8);
+
+    for (int c = 0; c < 3; c++) {
+        s->sblackpt[c] = scale * s->blackpt[c] + (s->blackpt[c] >> (16 - s->depth));
+        s->swhitept[c] = scale * s->whitept[c] + (s->whitept[c] >> (16 - s->depth));
+    }
+}
+
+static int process_command(AVFilterContext *ctx, const char *cmd, const char *args,
+                           char *res, int res_len, int flags)
+{
+    NormalizeContext *s = ctx->priv;
+    int ret = ff_filter_process_command(ctx, cmd, args, res, res_len, flags);
+
+    if (ret < 0)
+        return ret;
+    if (s->depth >= 8 && s->depth <= 16)
+        scale_points(s);
+    return 0;
+}
+
 // At this point we know the pixel format used for both input and output.  We
 // can also access the frame rate of the input video and allocate some memory
 // appropriately
@@ -414,11 +437,10 @@ static int config_input(AVFilterLink *inlink)
     NormalizeContext *s = inlink->dst->priv;
     // Store offsets to R,G,B,A bytes respectively in each pixel
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
-    int c, planar, scale;
+    int c, planar;
 
     ff_fill_rgba_map(s->co, inlink->format);
     s->depth = desc->comp[0].depth;
-    scale = 1 << (s->depth - 8);
     s->num_components = desc->nb_components;
     s->step = av_get_padded_bits_per_pixel(desc) >> (3 + (s->depth > 8));
     // Convert smoothing value to history_len (a count of frames to average,
@@ -437,9 +459,9 @@ static int config_input(AVFilterLink *inlink)
     for (c = 0; c < 3; c++) {
         s->min[c].history = s->history_mem + (c*2)   * s->history_len;
         s->max[c].history = s->history_mem + (c*2+1) * s->history_len;
-        s->sblackpt[c] = scale * s->blackpt[c] + (s->blackpt[c] & (1 << (s->depth - 8)));
-        s->swhitept[c] = scale * s->whitept[c] + (s->whitept[c] & (1 << (s->depth - 8)));
     }
+
+    scale_points(s);
 
     planar = desc->flags & AV_PIX_FMT_FLAG_PLANAR;
 
@@ -520,5 +542,5 @@ const FFFilter ff_vf_normalize = {
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(ff_video_default_filterpad),
     FILTER_PIXFMTS_ARRAY(pixel_fmts),
-    .process_command = ff_filter_process_command,
+    .process_command = process_command,
 };

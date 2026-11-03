@@ -843,7 +843,8 @@ static int rtsp_listen(AVFormatContext *s)
         } else if (methodcode == SETUP)
             ret = rtsp_read_setup(s, host, uri);
         if (ret) {
-            ret = AVERROR_INVALIDDATA;
+            if (ret > 0)
+                ret = AVERROR_INVALIDDATA;
             goto fail;
         }
     }

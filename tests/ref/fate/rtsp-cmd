@@ -1,0 +1,8 @@
+normal method=OPTIONS rc=0 bytes=73 cseq=41/42 crlf=1 adler32=4da81602
+exact method=OPTIONS rc=0 bytes=4095 cseq=41/42 crlf=1 adler32=c6600936
+overflow method=OPTIONS rc=EINVAL bytes=0 cseq=41/41 crlf=0 adler32=00000000
+header-fail method=OPTIONS rc=ENOSPC bytes=0 cseq=41/42 crlf=0 adler32=00000000
+body-fail method=ANNOUNCE rc=EPIPE bytes=93 cseq=41/42 crlf=1 adler32=500f1c3c
+tunnel-body method=ANNOUNCE rc=PATCHWELCOME bytes=0 cseq=41/41 crlf=0 adler32=00000000
+digest method=OPTIONS rc=0 bytes=266 cseq=41/42 nc=7/8
+digest-overflow method=OPTIONS rc=EINVAL bytes=0 cseq=41/41 nc=7/7

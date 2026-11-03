@@ -795,6 +795,7 @@ TESTPROGS = id3v2                                                       \
             url                                                         \
             seek_utils
 TESTPROGS-$(CONFIG_RTPDEC)               += rtpdec
+TESTPROGS-$(CONFIG_RTSP_MUXER)            += rtsp
 #           async                                                       \
 
 FIFO-MUXER-TESTPROGS-$(CONFIG_NETWORK)   += fifo_muxer

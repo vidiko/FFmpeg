@@ -64,6 +64,10 @@ FATE_LIBAVFORMAT-$(CONFIG_RTPDEC) += fate-rtpdec
 fate-rtpdec: libavformat/tests/rtpdec$(EXESUF)
 fate-rtpdec: CMD = run libavformat/tests/rtpdec$(EXESUF)
 
+FATE_LIBAVFORMAT-$(CONFIG_RTSP_MUXER) += fate-rtsp-cmd
+fate-rtsp-cmd: libavformat/tests/rtsp$(EXESUF)
+fate-rtsp-cmd: CMD = run libavformat/tests/rtsp$(EXESUF)
+
 FATE_LIBAVFORMAT-$(CONFIG_SRTP) += fate-srtp
 fate-srtp: libavformat/tests/srtp$(EXESUF)
 fate-srtp: CMD = run libavformat/tests/srtp$(EXESUF)

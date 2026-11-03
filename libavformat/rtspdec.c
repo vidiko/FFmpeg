@@ -586,7 +586,7 @@ static int rtsp_read_play(AVFormatContext *s)
         }
         ff_rtsp_send_cmd(s, "PLAY", rt->control_uri, cmd, reply, NULL);
         if (reply->status_code != RTSP_STATUS_OK) {
-            return ff_rtsp_averror(reply->status_code, -1);
+            return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
         }
         if (rt->transport == RTSP_TRANSPORT_RTP &&
             reply->range_start != AV_NOPTS_VALUE) {
@@ -619,7 +619,7 @@ static int rtsp_read_pause(AVFormatContext *s)
     else if (!(rt->server_type == RTSP_SERVER_REAL && rt->need_subscription)) {
         ff_rtsp_send_cmd(s, "PAUSE", rt->control_uri, NULL, reply, NULL);
         if (reply->status_code != RTSP_STATUS_OK) {
-            return ff_rtsp_averror(reply->status_code, -1);
+            return ff_rtsp_averror(reply->status_code, AVERROR_INVALIDDATA);
         }
     }
     rt->state = RTSP_STATE_PAUSED;

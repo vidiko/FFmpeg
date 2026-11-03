@@ -118,7 +118,7 @@ static int rtsp_send_reply(AVFormatContext *s, enum RTSPStatusCode code,
 {
     RTSPState *rt = s->priv_data;
     char message[MAX_URL_SIZE];
-    int index = 0;
+    int index = 0, ret;
     while (status_messages[index].code) {
         if (status_messages[index].code == code) {
             snprintf(message, sizeof(message), "RTSP/1.0 %d %s\r\n",
@@ -135,7 +135,9 @@ static int rtsp_send_reply(AVFormatContext *s, enum RTSPStatusCode code,
         av_strlcat(message, extracontent, sizeof(message));
     av_strlcat(message, "\r\n", sizeof(message));
     av_log(s, AV_LOG_TRACE, "Sending response:\n%s", message);
-    ffurl_write(rt->rtsp_hd_out, message, strlen(message));
+    ret = ffurl_write(rt->rtsp_hd_out, message, strlen(message));
+    if (ret != strlen(message))
+        return ret < 0 ? ret : AVERROR(EIO);
 
     return 0;
 }
@@ -225,8 +227,7 @@ static int rtsp_read_announce(AVFormatContext *s)
         av_free(sdp);
         if (ret)
             return ret;
-        rtsp_send_reply(s, RTSP_STATUS_OK, NULL, request.seq);
-        return 0;
+        return rtsp_send_reply(s, RTSP_STATUS_OK, NULL, request.seq);
     }
     av_log(s, AV_LOG_ERROR,
            "Invalid ANNOUNCE Content-Length %d\n", request.content_length);
@@ -247,10 +248,9 @@ static int rtsp_read_options(AVFormatContext *s)
         return ret;
     rt->seq++;
     /* Send Reply */
-    rtsp_send_reply(s, RTSP_STATUS_OK,
-                    "Public: ANNOUNCE, PAUSE, SETUP, TEARDOWN, RECORD\r\n",
-                    request.seq);
-    return 0;
+    return rtsp_send_reply(s, RTSP_STATUS_OK,
+                           "Public: ANNOUNCE, PAUSE, SETUP, TEARDOWN, RECORD\r\n",
+                           request.seq);
 }
 
 static int rtsp_read_setup(AVFormatContext *s, char* host, char *controlurl)
@@ -366,7 +366,9 @@ static int rtsp_read_setup(AVFormatContext *s, char* host, char *controlurl)
     av_strlcatf(responseheaders, sizeof(responseheaders), "Session: %s\r\n",
                 rt->session_id);
     /* Send Reply */
-    rtsp_send_reply(s, RTSP_STATUS_OK, responseheaders, request.seq);
+    ret = rtsp_send_reply(s, RTSP_STATUS_OK, responseheaders, request.seq);
+    if (ret < 0)
+        return ret;
 
     rt->state = RTSP_STATE_PAUSED;
     return 0;
@@ -388,7 +390,9 @@ static int rtsp_read_record(AVFormatContext *s)
     rt->seq++;
     snprintf(responseheaders, sizeof(responseheaders), "Session: %s\r\n",
              rt->session_id);
-    rtsp_send_reply(s, RTSP_STATUS_OK, responseheaders, request.seq);
+    ret = rtsp_send_reply(s, RTSP_STATUS_OK, responseheaders, request.seq);
+    if (ret < 0)
+        return ret;
 
     rt->state = RTSP_STATE_STREAMING;
     return 0;

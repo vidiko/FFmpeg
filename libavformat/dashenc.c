@@ -1858,7 +1858,7 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
         os->pos += range_length;
     }
 
-    if (c->window_size) {
+    if (ret >= 0 && c->window_size) {
         for (i = 0; i < s->nb_streams; i++) {
             OutputStream *os = &c->streams[i];
             int remove_count = os->nb_segments - c->window_size - c->extra_window_size;

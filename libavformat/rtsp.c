@@ -1358,14 +1358,16 @@ start:
             av_base64_encode(base64buf, sizeof(base64buf), buf, strlen(buf));
             ptr = base64buf;
         }
-        ffurl_write(rt->rtsp_hd_out, ptr, strlen(ptr));
+        ret = ffurl_write(rt->rtsp_hd_out, ptr, strlen(ptr));
 
-        rt->last_cmd_time = av_gettime_relative();
         /* Even if the request from the server had data, it is not the data
          * that the caller wants or expects. The memory could also be leaked
          * if the actual following reply has content data. */
         if (content_ptr)
             av_freep(content_ptr);
+        if (ret != strlen(ptr))
+            return ret < 0 ? ret : AVERROR(EIO);
+        rt->last_cmd_time = av_gettime_relative();
         /* If method is set, this is called from ff_rtsp_send_cmd,
          * where a reply to exactly this request is awaited. For
          * callers from within packet receiving, we just want to

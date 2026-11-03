@@ -139,6 +139,7 @@ static int rtsp_write_header(AVFormatContext *s)
     if ((ret = rtsp_write_record(s)) < 0) {
         ff_rtsp_close_streams(s);
         ff_rtsp_close_connections(s);
+        ff_network_close();
         return ret;
     }
     return 0;

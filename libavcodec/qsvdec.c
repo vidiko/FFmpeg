@@ -37,6 +37,7 @@
 #include "libavutil/mem.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/time.h"
 #include "libavutil/imgutils.h"
@@ -629,6 +630,7 @@ static int qsv_export_film_grain(AVCodecContext *avctx, mfxExtAV1FilmGrainParam 
 {
     AVFilmGrainParams *fgp;
     AVFilmGrainAOMParams *aom;
+    int ret;
     int i;
 
     if (!(ext_param->FilmGrainFlags & MFX_FILM_GRAIN_APPLY))
@@ -641,6 +643,11 @@ static int qsv_export_film_grain(AVCodecContext *avctx, mfxExtAV1FilmGrainParam 
 
     fgp->type = AV_FILM_GRAIN_PARAMS_AV1;
     fgp->seed = ext_param->GrainSeed;
+    ret = av_pix_fmt_get_chroma_sub_sample(avctx->sw_pix_fmt,
+                                           &fgp->subsampling_x,
+                                           &fgp->subsampling_y);
+    if (ret < 0)
+        return ret;
     aom = &fgp->codec.aom;
 
     aom->chroma_scaling_from_luma = !!(ext_param->FilmGrainFlags & MFX_FILM_GRAIN_CHROMA_SCALING_FROM_LUMA);

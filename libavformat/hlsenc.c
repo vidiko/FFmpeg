@@ -1556,6 +1556,7 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     HLSSegment *en;
     int target_duration = 0;
     int ret = 0;
+    int entry_error = 0;
     char temp_filename[MAX_URL_SIZE];
     char temp_vtt_filename[MAX_URL_SIZE];
     int64_t sequence = FFMAX(hls->start_sequence, vs->sequence - vs->nb_entries);
@@ -1643,8 +1644,9 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
                                       hls->flags & HLS_I_FRAMES_ONLY);
         if (en->discont_program_date_time)
             en->discont_program_date_time -= en->duration;
-        if (ret < 0) {
-            av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error\n");
+        if (ret < 0 && !entry_error) {
+            entry_error = ret;
+            av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error: %s\n", av_err2str(ret));
         }
     }
 
@@ -1661,12 +1663,14 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
         }
         ff_hls_write_playlist_header(hls->sub_m3u8_out, hls->version, hls->allowcache,
                                      target_duration, sequence, PLAYLIST_TYPE_NONE, 0);
+        entry_error = 0;
         for (en = vs->segments; en; en = en->next) {
             ret = ff_hls_write_file_entry(hls->sub_m3u8_out, en->discont, byterange_mode,
                                           en->duration, 0, en->size, en->pos,
                                           hls->baseurl, en->sub_filename, NULL, 0);
-            if (ret < 0) {
-                av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error\n");
+            if (ret < 0 && !entry_error) {
+                entry_error = ret;
+                av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error: %s\n", av_err2str(ret));
             }
         }
 

@@ -181,6 +181,9 @@ FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC FORMAT CONCAT SCALE, LAVFI_INDEV FILE
 fate-filter-lavd-scalenorm: tests/data/filtergraphs/scalenorm
 fate-filter-lavd-scalenorm: CMD = framecrc -f lavfi -graph_file $(TARGET_PATH)/tests/data/filtergraphs/scalenorm -i dummy
 
+FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC SENDCMD NORMALIZE) += fate-filter-normalize-commands
+fate-filter-normalize-commands: CMD = run $(FFMPEG) -nostdin -noauto_conversion_filters -cpuflags $$cpuflags -flags bitexact -lavfi "testsrc=s=16x16:r=1:d=3,sendcmd=c=1 normalize blackpt 0x7f7f7f\\;2 normalize whitept 0x818181,normalize" -bitexact -f framecrc -
+
 FATE_FILTER-$(call FILTERFRAMECRC, COLOR FORMAT NORMALIZE) += fate-filter-normalize-white-rgb24
 fate-filter-normalize-white-rgb24: CMD = framecrc -flags bitexact -lavfi color=c=black:s=16x16:r=1:d=1,format=rgb24,normalize=blackpt=white:whitept=black
 FATE_FILTER-$(call FILTERFRAMECRC, COLOR FORMAT NORMALIZE SCALE) += fate-filter-normalize-white-gbrp16le

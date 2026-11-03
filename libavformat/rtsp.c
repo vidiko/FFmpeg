@@ -1221,6 +1221,9 @@ int ff_rtsp_skip_packet(AVFormatContext *s)
     int ret, len, len1;
     uint8_t buf[MAX_URL_SIZE];
 
+    if (!rt->rtsp_hd)
+        return AVERROR(ENOTCONN);
+
     rt->pending_packet = 0;
     ret = ffurl_read_complete(rt->rtsp_hd, buf, 3);
     if (ret != 3)
@@ -1416,6 +1419,9 @@ int ff_rtsp_read_reply(AVFormatContext *s, RTSPMessageHeader *reply,
     int ret;
     RTSPState *rt = s->priv_data;
 
+    if (!rt->rtsp_hd)
+        return AVERROR(ENOTCONN);
+
     // If we returned on pending packet last time,
     // do not try to read again, as it would corrupt
     // the state due to the already consumed '$'.
@@ -1457,6 +1463,20 @@ int ff_rtsp_read_reply(AVFormatContext *s, RTSPMessageHeader *reply,
 
     return ff_rtsp_read_reply_internal(s, reply, content_ptr,
         return_on_interleaved_data, method);
+}
+
+static int rtsp_write_request(AVFormatContext *s, const uint8_t *buf, int size)
+{
+    RTSPState *rt = s->priv_data;
+    int ret = ffurl_write(rt->rtsp_hd_out, buf, size);
+
+    if (ret == size)
+        return 0;
+
+    if (ret >= 0)
+        ret = AVERROR(EIO);
+    ff_rtsp_close_connections(s);
+    return ret;
 }
 
 /**
@@ -1534,10 +1554,10 @@ int ff_rtsp_send_cmd_with_content_async(AVFormatContext *s,
 
     av_log(s, AV_LOG_TRACE, "Sending:\n%s--\n", buf);
 
-    if ((ret = ffurl_write(rt->rtsp_hd_out, out_buf, strlen(out_buf))) < 0)
+    if ((ret = rtsp_write_request(s, out_buf, strlen(out_buf))) < 0)
         return ret;
     if (send_content_length > 0 && send_content) {
-        if ((ret = ffurl_write(rt->rtsp_hd_out, send_content, send_content_length)) < 0)
+        if ((ret = rtsp_write_request(s, send_content, send_content_length)) < 0)
             return ret;
     }
     rt->last_cmd_time = av_gettime_relative();

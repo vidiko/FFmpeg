@@ -152,6 +152,9 @@ int ff_rtsp_tcp_write_packet(AVFormatContext *s, RTSPStream *rtsp_st)
     int size;
     uint8_t *interleave_header, *interleaved_packet;
 
+    if (!rt->rtsp_hd_out)
+        return AVERROR(ENOTCONN);
+
     size = avio_close_dyn_buf(rtpctx->pb, &buf);
     rtpctx->pb = NULL;
     ptr = buf;
@@ -188,9 +191,13 @@ static int rtsp_write_packet(AVFormatContext *s, AVPacket *pkt)
     RTSPState *rt = s->priv_data;
     RTSPStream *rtsp_st;
     int n;
-    struct pollfd p = {ffurl_get_file_handle(rt->rtsp_hd), POLLIN, 0};
+    struct pollfd p;
     AVFormatContext *rtpctx;
     int ret;
+
+    if (!rt->rtsp_hd || !rt->rtsp_hd_out)
+        return AVERROR(ENOTCONN);
+    p = (struct pollfd){ffurl_get_file_handle(rt->rtsp_hd), POLLIN, 0};
 
     while (1) {
         n = poll(&p, 1, 0);

@@ -917,6 +917,9 @@ int ff_rtsp_tcp_read_packet(AVFormatContext *s, RTSPStream **prtsp_st,
     int id, len, i, ret;
     RTSPStream *rtsp_st;
 
+    if (!rt->rtsp_hd)
+        return AVERROR(ENOTCONN);
+
     av_log(s, AV_LOG_TRACE, "tcp_read_packet:\n");
 redo:
     for (;;) {
@@ -980,6 +983,11 @@ static int rtsp_read_packet(AVFormatContext *s, AVPacket *pkt)
     int ret;
     RTSPMessageHeader reply1, *reply = &reply1;
     char cmd[MAX_URL_SIZE];
+
+    /* a failed request write closed the control connection; the cached
+     * poll set still holds its descriptor */
+    if (!rt->rtsp_hd)
+        return AVERROR(ENOTCONN);
 
 retry:
     if (rt->server_type == RTSP_SERVER_REAL) {

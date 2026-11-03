@@ -61,3 +61,15 @@ empty-reference: ret=0
   cb_ar[5] 4 5 6 7 8
   cr_ar[5] 12 13 14 15 -16
   cb_uv=0/0/0 cr_uv=0/0/0 overlap=1 limit=0
+explicit-y-cb0-cr: ret=0
+  y[1] 8/12
+  cb[0]
+  cr[1] 8/44
+explicit-y-cb-cr0: ret=0
+  y[1] 8/12
+  cb[1] 8/44
+  cr[0]
+explicit-y-cb0-cr0: ret=0
+  y[1] 8/12
+  cb[0]
+  cr[0]

@@ -663,8 +663,14 @@ static av_cold void uninit(AVFilterContext *ctx)
     }
 
     if (s->vmaf) {
-        if (s->log_path && !err)
-            vmaf_write_output(s->vmaf, s->log_path, log_fmt_map(s->log_fmt));
+        if (s->log_path && !err) {
+            err = vmaf_write_output(s->vmaf, s->log_path, log_fmt_map(s->log_fmt));
+            if (err < 0) {
+                av_log(ctx, AV_LOG_ERROR,
+                       "problem writing libvmaf output to %s: %s.\n",
+                       s->log_path, av_err2str(err));
+            }
+        }
     }
 
 clean_up:

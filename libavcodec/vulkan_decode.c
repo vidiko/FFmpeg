@@ -536,7 +536,8 @@ int ff_vk_decode_frame(AVCodecContext *avctx,
                      VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR :
                      VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR, /* Spec, 07252 utter madness */
         .srcQueueFamilyIndex = vkf->queue_family[0],
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = ff_vk_barrier_dst_qf(vkf->queue_family[0],
+                                                    VK_QUEUE_FAMILY_IGNORED),
         .image = vkf->img[0],
         .subresourceRange = (VkImageSubresourceRange) {
             .aspectMask = vp->view.aspect,
@@ -609,7 +610,8 @@ int ff_vk_decode_frame(AVCodecContext *avctx,
                     .oldLayout = rvkf->layout[0],
                     .newLayout = VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR,
                     .srcQueueFamilyIndex = rvkf->queue_family[0],
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = ff_vk_barrier_dst_qf(rvkf->queue_family[0],
+                                                                VK_QUEUE_FAMILY_IGNORED),
                     .image = rvkf->img[0],
                     .subresourceRange = (VkImageSubresourceRange) {
                         .aspectMask = rvp->view.aspect_ref,

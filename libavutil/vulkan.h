@@ -363,6 +363,29 @@ static inline int ff_vk_count_images(AVVkFrame *f)
     return cnt;
 }
 
+/**
+ * Return the destination queue family for a barrier on an image currently
+ * owned by src_qf, when the caller asked for new_qf.
+ *
+ * Unequal queue family indices define a queue family ownership transfer,
+ * and an exclusive image can only be transferred to a queue family that
+ * exists (or to the external or foreign one), never to
+ * VK_QUEUE_FAMILY_IGNORED (VUID-VkImageMemoryBarrier2-image-09118).
+ * Frames on a device with a single queue family are tracked as owned by
+ * that family, so a caller that asks for no particular family keeps the
+ * current owner: equal indices mean no transfer.
+ */
+static inline uint32_t ff_vk_barrier_dst_qf(uint32_t src_qf, uint32_t new_qf)
+{
+    if (new_qf == VK_QUEUE_FAMILY_IGNORED &&
+        src_qf != VK_QUEUE_FAMILY_IGNORED &&
+        src_qf != VK_QUEUE_FAMILY_EXTERNAL &&
+        src_qf != VK_QUEUE_FAMILY_FOREIGN_EXT)
+        return src_qf;
+
+    return new_qf;
+}
+
 static inline const void *ff_vk_find_struct(const void *chain, VkStructureType stype)
 {
     const VkBaseInStructure *in = chain;

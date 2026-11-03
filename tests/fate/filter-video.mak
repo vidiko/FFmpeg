@@ -930,6 +930,39 @@ EBUR128_HEIGHT_DEPS = FFPROBE LAVFI_INDEV AEVALSRC_FILTER ARESAMPLE_FILTER EBUR1
 FATE_FILTER_FFPROBE-$(call ALLYES, $(EBUR128_HEIGHT_DEPS)) += fate-filter-metadata-ebur128-height
 fate-filter-metadata-ebur128-height: CMD = run $(FILTER_METADATA_COMMAND) "aevalsrc=0.12589*sin(2*PI*997*t):channel_layout=TBL:sample_rate=48000:duration=0.4,ebur128=metadata=1"
 
+tests/data/fate/find_rect_obj.pgm: TAG = GEN
+tests/data/fate/find_rect_obj.pgm: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data/fate
+	$(M)$(TARGET_EXEC) $(TARGET_PATH)/$< -nostdin -f lavfi \
+	-i "color=black:s=4x4:d=1,pad=8:8:0:0:white,format=gray" \
+	-frames:v 1 -update 1 -y $(TARGET_PATH)/$@ 2>/dev/null
+
+FIND_RECT_DEPS = FFMPEG FFPROBE LAVFI_INDEV COLOR_FILTER PAD_FILTER FORMAT_FILTER \
+                 FIND_RECT_FILTER IMAGE2PIPE_DEMUXER PGM_DECODER PGM_ENCODER \
+                 IMAGE2_MUXER FILE_PROTOCOL WRAPPED_AVFRAME_DECODER
+
+FATE_FIND_RECT += fate-filter-find_rect-found \
+                  fate-filter-find_rect-found-discard \
+                  fate-filter-find_rect-xmin-nodiscard \
+                  fate-filter-find_rect-xmin-discard \
+                  fate-filter-find_rect-ymin-nodiscard \
+                  fate-filter-find_rect-ymin-discard \
+                  fate-filter-find_rect-largeobj-nodiscard \
+                  fate-filter-find_rect-largeobj-discard
+
+$(FATE_FIND_RECT): tests/data/fate/find_rect_obj.pgm
+
+fate-filter-find_rect-found: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm'"
+fate-filter-find_rect-found-discard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':discard=1"
+fate-filter-find_rect-xmin-nodiscard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':xmin=30:xmax=10:discard=0"
+fate-filter-find_rect-xmin-discard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':xmin=30:xmax=10:discard=1"
+fate-filter-find_rect-ymin-nodiscard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':ymin=30:ymax=10:discard=0"
+fate-filter-find_rect-ymin-discard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,pad=8:8:0:0:white,pad=64:64:16:16:black,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':ymin=30:ymax=10:discard=1"
+fate-filter-find_rect-largeobj-nodiscard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':discard=0"
+fate-filter-find_rect-largeobj-discard: CMD = run $(FILTER_METADATA_COMMAND) "color=black:s=4x4:d=2:r=1,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_obj.pgm':discard=1"
+
+FATE_FILTER_FFPROBE-$(call ALLYES, $(FIND_RECT_DEPS)) += $(FATE_FIND_RECT)
+fate-find-rect: $(if $(call ALLYES, $(FIND_RECT_DEPS)), $(FATE_FIND_RECT))
+
 READVITC_METADATA_DEPS = LAVFI_INDEV MOVIE_FILTER \
                          AVI_DEMUXER FFVHUFF_DECODER READVITC_FILTER
 FATE_METADATA_FILTER-$(call ALLYES, $(READVITC_METADATA_DEPS)) += fate-filter-metadata-readvitc-def

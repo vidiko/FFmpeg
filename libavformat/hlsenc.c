@@ -319,13 +319,15 @@ static int hlsenc_io_close(AVFormatContext *s, AVIOContext **pb, char *filename)
     if (!*pb)
         return ret;
     if (!http_base_proto || !hls->http_persistent || hls->key_info_file || hls->encrypt) {
-        ff_format_io_close(s, pb);
+        ret = ff_format_io_close(s, pb);
 #if CONFIG_HTTP_PROTOCOL
     } else {
         URLContext *http_url_context = ffio_geturlcontext(*pb);
         av_assert0(http_url_context);
         avio_flush(*pb);
         ret = ffurl_shutdown(http_url_context, AVIO_FLAG_WRITE);
+        if (ret >= 0)
+            ret = (*pb)->error;
 #endif
     }
     return ret;
@@ -1555,7 +1557,7 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     HLSContext *hls = s->priv_data;
     HLSSegment *en;
     int target_duration = 0;
-    int ret = 0;
+    int ret = 0, err;
     int entry_error = 0;
     char temp_filename[MAX_URL_SIZE];
     char temp_vtt_filename[MAX_URL_SIZE];
@@ -1648,6 +1650,8 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
             entry_error = ret;
             av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error: %s\n", av_err2str(ret));
         }
+        if (ret < 0 && !hls->ignore_io_errors)
+            goto fail;
     }
 
     if (last && (hls->flags & HLS_OMIT_ENDLIST)==0)
@@ -1681,7 +1685,11 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
 
 fail:
     av_dict_free(&options);
-    ret = hlsenc_io_close(s, byterange_mode ? &hls->m3u8_out : &vs->out, temp_filename);
+    err = hlsenc_io_close(s, byterange_mode ? &hls->m3u8_out : &vs->out, temp_filename);
+    if (ret >= 0)
+        ret = err;
+    if (hls->ignore_io_errors)
+        ret = 0;
     if (ret < 0) {
         return ret;
     }
@@ -2643,7 +2651,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
                 hls_rename_temp_file(s, oc);
         }
 
-        if (ret < 0)
+        if (ret < 0 && !hls->ignore_io_errors)
             return ret;
 
         old_filename = av_strdup(oc->url);
@@ -2664,7 +2672,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         if (hls->pl_type != PLAYLIST_TYPE_VOD) {
             if ((ret = hls_window(s, 0, vs)) < 0) {
                 av_log(s, AV_LOG_WARNING, "upload playlist failed, will retry with a new http session.\n");
-                ff_format_io_close(s, &vs->out);
+                ff_format_io_close(s, byterange_mode ? &hls->m3u8_out : &vs->out);
                 if ((ret = hls_window(s, 0, vs)) < 0) {
                     av_freep(&old_filename);
                     return ret;
@@ -2766,10 +2774,11 @@ static int hls_write_trailer(struct AVFormatContext *s)
     const char *proto = NULL;
     int use_temp_file = 0;
     int i;
-    int ret = 0;
+    int ret = 0, err = 0;
     VariantStream *vs = NULL;
     AVDictionary *options = NULL;
-    int range_length, byterange_mode;
+    int range_length;
+    int byterange_mode = (hls->flags & HLS_SINGLE_FILE) || (hls->max_seg_size > 0);
 
     for (i = 0; i < hls->nb_varstreams; i++) {
         char *filename = NULL;
@@ -2809,7 +2818,6 @@ static int hls_write_trailer(struct AVFormatContext *s)
                 avio_open_dyn_buf(&oc->pb);
                 vs->packets_written = 0;
                 vs->start_pos = init_range_length;
-                byterange_mode = (hls->flags & HLS_SINGLE_FILE) || (hls->max_seg_size > 0);
                 if (!byterange_mode) {
                     ff_format_io_close(s, &vs->out);
                     hlsenc_io_close(s, &vs->out, vs->base_output_dirname);
@@ -2852,6 +2860,8 @@ static int hls_write_trailer(struct AVFormatContext *s)
             hlsenc_io_close(s, &vs->out_single_file, vs->basename);
         }
 failed:
+        if (ret < 0 && !hls->ignore_io_errors && err >= 0)
+            err = ret;
         av_freep(&vs->temp_buffer);
         av_dict_free(&options);
         av_freep(&filename);
@@ -2886,15 +2896,17 @@ failed:
         ret = hls_window(s, 1, vs);
         if (ret < 0) {
             av_log(s, AV_LOG_WARNING, "upload playlist failed, will retry with a new http session.\n");
-            ff_format_io_close(s, &vs->out);
-            hls_window(s, 1, vs);
+            ff_format_io_close(s, byterange_mode ? &hls->m3u8_out : &vs->out);
+            ret = hls_window(s, 1, vs);
         }
+        if (ret < 0 && err >= 0)
+            err = ret;
         ffio_free_dyn_buf(&oc->pb);
 
         av_free(old_filename);
     }
 
-    return 0;
+    return err;
 }
 
 

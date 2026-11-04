@@ -831,15 +831,15 @@ static int copy_picture_data_cuda(VmafContext* vmaf,
 
         err = cu->cuMemcpy2D(&m);
         if (err)
-            return AVERROR_EXTERNAL;
+            goto fail;
         break;
     }
 
-    err = cu->cuCtxPopCurrent(NULL);
-    if (err)
+fail:
+    if (cu->cuCtxPopCurrent(NULL))
         return AVERROR_EXTERNAL;
 
-    return 0;
+    return err ? AVERROR_EXTERNAL : 0;
 }
 
 static int do_vmaf_cuda(FFFrameSync* fs)

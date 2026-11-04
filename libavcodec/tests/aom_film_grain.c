@@ -106,10 +106,10 @@ static void put_set(PutBitContext *bw, int component, int bits_res, int referenc
     put_bits(bw, 1, 1); // update_grain
     put_bits(bw, 4, 0);
     put_bits(bw, 12, 64);
-    put_bits(bw, 12, 32);
+    put_bits(bw, 12, reference ? 32 : 16);
     put_bits(bw, 1, 0); // not luma only
-    put_bits(bw, 1, 1);
-    put_bits(bw, 1, 1);
+    put_bits(bw, 1, 0); // 4:4:4 permits independently empty chroma lists
+    put_bits(bw, 1, 0);
     put_bits(bw, 1, 0); // no video signal characteristics
     put_bits(bw, 1, !reference); // predict_scaling
 

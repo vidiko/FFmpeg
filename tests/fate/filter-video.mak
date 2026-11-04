@@ -883,6 +883,20 @@ FATE_FFMPEG += $(FATE_FILTER_FREI0R_SRC-yes)
 #
 FILTER_METADATA_COMMAND = ffprobe$(PROGSSUF)$(EXESUF) -of compact=p=0 -show_entries frame=pts:frame_tags -bitexact -f lavfi
 
+tests/data/fate/find_rect_odd_obj.pgm: TAG = GEN
+tests/data/fate/find_rect_odd_obj.pgm: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data/fate
+	$(M)$(TARGET_EXEC) $(TARGET_PATH)/$< -nostdin -f lavfi \
+	-i "testsrc=s=65x49:r=1:d=1,format=gray,crop=9:9:56:10" \
+	-frames:v 1 -update 1 -y $(TARGET_PATH)/$@ 2>/dev/null
+
+FIND_RECT_ODD_EDGE_DEPS = FFMPEG FFPROBE LAVFI_INDEV TESTSRC_FILTER FORMAT_FILTER \
+                          CROP_FILTER SCALE_FILTER FIND_RECT_FILTER IMAGE2PIPE_DEMUXER \
+                          PGM_DECODER PGM_ENCODER IMAGE2_MUXER FILE_PROTOCOL WRAPPED_AVFRAME_DECODER
+
+FATE_FILTER_FFPROBE-$(call ALLYES, $(FIND_RECT_ODD_EDGE_DEPS)) += fate-filter-find_rect-odd-edge
+fate-filter-find_rect-odd-edge: tests/data/fate/find_rect_odd_obj.pgm
+fate-filter-find_rect-odd-edge: CMD = run $(FILTER_METADATA_COMMAND) "testsrc=s=65x49:r=1:d=1,format=gray,format=yuv420p,find_rect=object='$(TARGET_PATH)/tests/data/fate/find_rect_odd_obj.pgm':mipmaps=3"
+
 SCENEDETECT_DEPS = LAVFI_INDEV MOVIE_FILTER SELECT_FILTER  \
                    SCALE_FILTER MOV_DEMUXER SVQ3_DECODER ZLIB
 FATE_METADATA_FILTER-$(call ALLYES, $(SCENEDETECT_DEPS)) += fate-filter-metadata-scenedetect

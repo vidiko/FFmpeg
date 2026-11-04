@@ -99,9 +99,9 @@ static AVFrame *downscale(AVFrame *in)
         x = yd ? w2 : 0;
         for(; x < frame->width; x++) {
             dst[x] = (  src[2*x+0]
-                      + src[FFMIN(2*x+1, w2)]
+                      + src[FFMIN(2*x+1, in->width - 1)]
                       + src[2*x+0            + yd]
-                      + src[FFMIN(2*x+1, w2) + yd]
+                      + src[FFMIN(2*x+1, in->width - 1) + yd]
                       + 2) >> 2;
         }
         src += 2*in->linesize[0];

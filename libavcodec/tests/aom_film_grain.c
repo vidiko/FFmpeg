@@ -311,9 +311,10 @@ static void run_case(const char *name, int component, int bits_res)
     int y_coeffs = (component == Y || component == EMPTY) ? 4 : 0;
     int cb_coeffs = (component == CB || component == EMPTY) ? 4 + !!y_coeffs : 0;
     int cr_coeffs = (component == CR || component == EMPTY) ? 4 + !!y_coeffs : 0;
+    int size;
 
-    aom = parse_case(name, &sets, payload,
-                     build_payload(payload, component, bits_res), 1);
+    size = build_payload(payload, component, bits_res);
+    aom = parse_case(name, &sets, payload, size, 1);
     if (aom) {
         print_points("y", aom->num_y_points, aom->y_points);
         print_points("cb", aom->num_uv_points[0], aom->uv_points[0]);
@@ -338,10 +339,10 @@ static void run_explicit_case(const char *name, int y_points,
     AVFilmGrainAFGS1Params sets = { 0 };
     uint8_t payload[128];
     const AVFilmGrainAOMParams *aom;
+    int size;
 
-    aom = parse_case(name, &sets, payload,
-                     build_explicit_payload(payload, y_points,
-                                            cb_points, cr_points), 0);
+    size = build_explicit_payload(payload, y_points, cb_points, cr_points);
+    aom = parse_case(name, &sets, payload, size, 0);
     if (aom) {
         print_points("y", aom->num_y_points, aom->y_points);
         print_points("cb", aom->num_uv_points[0], aom->uv_points[0]);

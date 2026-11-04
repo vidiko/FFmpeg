@@ -112,6 +112,7 @@ typedef struct OutputStream {
     int64_t init_start_pos, pos;
     int init_range_length;
     int nb_segments, segments_size, segment_index;
+    int hls_start_index; /* First segment in the last published media playlist. */
     int64_t seg_duration;
     int64_t frag_duration;
     int64_t last_duration;
@@ -375,9 +376,10 @@ static void get_start_index_number(OutputStream *os, DASHContext *c,
     }
 }
 
-static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
-                                     int representation_id, int final,
-                                     char *prefetch_url) {
+static int write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
+                                    int representation_id, int final,
+                                    char *prefetch_url)
+{
     DASHContext *c = s->priv_data;
     int timescale = os->ctx->streams[0]->time_base.den;
     char temp_filename_hls[1024];
@@ -394,7 +396,7 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
 
     if (!c->hls_playlist || start_index >= os->nb_segments ||
         os->segment_type != SEGMENT_TYPE_MP4)
-        return;
+        return 0;
 
     get_hls_playlist_name(filename_hls, sizeof(filename_hls),
                           c->dirname, representation_id);
@@ -405,8 +407,7 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
     ret = dashenc_io_open(s, &c->m3u8_out, temp_filename_hls, &http_opts);
     av_dict_free(&http_opts);
     if (ret < 0) {
-        handle_io_open_error(s, ret, temp_filename_hls);
-        return;
+        return handle_io_open_error(s, ret, temp_filename_hls);
     }
     for (i = start_index; i < os->nb_segments; i++) {
         Segment *seg = os->segments[i];
@@ -439,6 +440,8 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
                                 &prog_date_time, 0);
         if (ret < 0) {
             av_log(os->ctx, AV_LOG_WARNING, "ff_hls_write_file_entry get error\n");
+            dashenc_io_close(s, &c->m3u8_out, temp_filename_hls);
+            return ret;
         }
     }
 
@@ -448,10 +451,19 @@ static void write_hls_media_playlist(OutputStream *os, AVFormatContext *s,
     if (final)
         ff_hls_write_end_list(c->m3u8_out);
 
+    avio_flush(c->m3u8_out);
+    ret = c->m3u8_out->error;
     dashenc_io_close(s, &c->m3u8_out, temp_filename_hls);
+    if (ret < 0)
+        return ret;
 
-    if (use_rename)
-        ff_rename(temp_filename_hls, filename_hls, os->ctx);
+    if (use_rename) {
+        ret = ff_rename(temp_filename_hls, filename_hls, os->ctx);
+        if (ret < 0)
+            return ret;
+    }
+    os->hls_start_index = start_index;
+    return 0;
 }
 
 static int flush_init_segment(AVFormatContext *s, OutputStream *os)
@@ -514,8 +526,8 @@ static void dash_free(AVFormatContext *s)
     ff_format_io_close(s, &c->http_delete);
 }
 
-static void output_segment_list(OutputStream *os, AVIOContext *out, AVFormatContext *s,
-                                int representation_id, int final)
+static int output_segment_list(OutputStream *os, AVIOContext *out, AVFormatContext *s,
+                               int representation_id, int final)
 {
     DASHContext *c = s->priv_data;
     int i, start_index, start_number;
@@ -583,10 +595,9 @@ static void output_segment_list(OutputStream *os, AVIOContext *out, AVFormatCont
         }
         avio_printf(out, "\t\t\t\t</SegmentList>\n");
     }
-    if (!c->lhls || final) {
-        write_hls_media_playlist(os, s, representation_id, final, NULL);
-    }
-
+    if (!c->lhls || final)
+        return write_hls_media_playlist(os, s, representation_id, final, NULL);
+    return 0;
 }
 
 static char *xmlescape(const char *str) {
@@ -637,7 +648,7 @@ static int write_adaptation_set(AVFormatContext *s, AVIOContext *out, int as_ind
     DASHContext *c = s->priv_data;
     AdaptationSet *as = &c->as[as_index];
     AVDictionaryEntry *lang, *role;
-    int i;
+    int i, ret;
 
     avio_printf(out, "\t\t<AdaptationSet id=\"%d\" contentType=\"%s\" startWithSAP=\"1\" segmentAlignment=\"true\" bitstreamSwitching=\"true\"",
                 as->id, as->media_type == AVMEDIA_TYPE_VIDEO ? "video" : "audio");
@@ -724,7 +735,9 @@ static int write_adaptation_set(AVFormatContext *s, AVIOContext *out, int as_ind
         if (!final && c->ldash && os->gop_size && os->frag_type != FRAG_TYPE_NONE && !(c->profile & MPD_PROFILE_DVB) &&
             (os->frag_type != FRAG_TYPE_DURATION || os->frag_duration != os->seg_duration))
             avio_printf(out, "\t\t\t\t<Resync dT=\"%"PRId64"\" type=\"1\"/>\n", os->gop_size);
-        output_segment_list(os, out, s, i, final);
+        ret = output_segment_list(os, out, s, i, final);
+        if (ret < 0)
+            return ret;
         avio_printf(out, "\t\t\t</Representation>\n");
     }
     avio_printf(out, "\t\t</AdaptationSet>\n");
@@ -983,6 +996,8 @@ end:
     return 0;
 }
 
+static inline void dashenc_delete_media_segments(AVFormatContext *s, OutputStream *os, int remove_count);
+
 static int write_manifest(AVFormatContext *s, int final)
 {
     DASHContext *c = s->priv_data;
@@ -1100,7 +1115,10 @@ static int write_manifest(AVFormatContext *s, int final)
 
     avio_printf(out, "</MPD>\n");
     avio_flush(out);
+    ret = out->error;
     dashenc_io_close(s, &c->mpd_out, temp_filename);
+    if (ret < 0)
+        return ret;
 
     if (use_rename) {
         if ((ret = ff_rename(temp_filename, s->url, s)) < 0)
@@ -1113,7 +1131,7 @@ static int write_manifest(AVFormatContext *s, int final)
         // Publish master playlist only the configured rate
         if (c->master_playlist_created && (!c->master_publish_rate ||
             c->streams[0].segment_index % c->master_publish_rate))
-            return 0;
+            goto manifests_written;
 
         if (*c->dirname)
             snprintf(filename_hls, sizeof(filename_hls), "%s%s", c->dirname, c->hls_master_name);
@@ -1217,11 +1235,29 @@ static int write_manifest(AVFormatContext *s, int final)
             }
         }
 
+        avio_flush(c->m3u8_out);
+        ret = c->m3u8_out->error;
         dashenc_io_close(s, &c->m3u8_out, temp_filename);
+        if (ret < 0)
+            return ret;
         if (use_rename)
             if ((ret = ff_rename(temp_filename, filename_hls, s)) < 0)
                 return ret;
         c->master_playlist_created = 1;
+    }
+
+manifests_written:
+    if (c->window_size) {
+        for (i = 0; i < s->nb_streams; i++) {
+            OutputStream *os = &c->streams[i];
+            int remove_count = os->nb_segments - c->window_size - c->extra_window_size;
+
+            /* LHLS media playlists can lag behind the MPD. */
+            if (c->hls_playlist && os->segment_type == SEGMENT_TYPE_MP4)
+                remove_count = FFMIN(remove_count, os->hls_start_index);
+            if (remove_count > 0)
+                dashenc_delete_media_segments(s, os, remove_count);
+        }
     }
 
     return 0;
@@ -1769,6 +1805,7 @@ static inline void dashenc_delete_media_segments(AVFormatContext *s, OutputStrea
     }
 
     os->nb_segments -= remove_count;
+    os->hls_start_index = FFMAX(os->hls_start_index - remove_count, 0);
     memmove(os->segments, os->segments + remove_count, os->nb_segments * sizeof(*os->segments));
 }
 
@@ -1856,15 +1893,6 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
         av_log(s, AV_LOG_VERBOSE, "Representation %d media segment %d written to: %s\n", i, os->segment_index, os->full_path);
 
         os->pos += range_length;
-    }
-
-    if (c->window_size) {
-        for (i = 0; i < s->nb_streams; i++) {
-            OutputStream *os = &c->streams[i];
-            int remove_count = os->nb_segments - c->window_size - c->extra_window_size;
-            if (remove_count > 0)
-                dashenc_delete_media_segments(s, os, remove_count);
-        }
     }
 
     if (final) {
@@ -2136,12 +2164,16 @@ static int dash_write_packet(AVFormatContext *s, AVPacket *pkt)
         // before fully written but the manifest is needed so that
         // clients and discover the segment filenames.
         if (c->streaming) {
-            write_manifest(s, 0);
+            ret = write_manifest(s, 0);
+            if (ret < 0)
+                return ret;
         }
 
         if (c->lhls) {
             char *prefetch_url = use_rename ? NULL : os->filename;
-            write_hls_media_playlist(os, s, pkt->stream_index, 0, prefetch_url);
+            ret = write_hls_media_playlist(os, s, pkt->stream_index, 0, prefetch_url);
+            if (ret < 0)
+                return ret;
         }
     }
 

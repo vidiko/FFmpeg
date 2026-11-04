@@ -75,5 +75,7 @@ explicit-y-cb0-cr0: ret=0
   cr[0]
 padded-apply-grain-zero: ret=0
   y[2] 8/12 20/20
+  skipped-set=absent
 padded-update-grain-zero: ret=0
   y[2] 8/12 20/20
+  skipped-set=absent

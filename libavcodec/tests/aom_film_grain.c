@@ -356,11 +356,13 @@ static void run_padded_case(const char *name, int update_grain)
     AVFilmGrainAFGS1Params sets = { 0 };
     uint8_t payload[128];
     const AVFilmGrainAOMParams *aom;
+    int size;
 
-    aom = parse_case(name, &sets, payload,
-                     build_padded_payload(payload, update_grain), 0);
+    size = build_padded_payload(payload, update_grain);
+    aom = parse_case(name, &sets, payload, size, 0);
     if (aom)
         print_points("y", aom->num_y_points, aom->y_points);
+    printf("  skipped-set=%s\n", sets.sets[1] ? "present" : "absent");
     ff_aom_uninit_film_grain_params(&sets);
 }
 

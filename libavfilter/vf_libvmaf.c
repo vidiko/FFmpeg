@@ -670,6 +670,10 @@ static av_cold void uninit(AVFilterContext *ctx)
                        "problem writing libvmaf output to %s: %s.\n",
                        s->log_path, av_err2str(err));
             }
+        } else if (s->log_path) {
+            av_log(ctx, AV_LOG_WARNING,
+                   "skipping libvmaf output to %s because of earlier error.\n",
+                   s->log_path);
         }
     }
 

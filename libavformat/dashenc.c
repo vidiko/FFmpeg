@@ -1169,7 +1169,7 @@ static int write_manifest(AVFormatContext *s, int final)
                 int stream_bitrate = os->muxer_overhead;
                 if (os->bit_rate > 0)
                     stream_bitrate += os->bit_rate;
-                else if (final)
+                else if (final && c->total_duration > 0)
                     stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
                 else if (os->first_segment_bit_rate > 0)
                     stream_bitrate += os->first_segment_bit_rate;
@@ -1201,7 +1201,7 @@ static int write_manifest(AVFormatContext *s, int final)
                 int stream_bitrate = os->muxer_overhead;
                 if (os->bit_rate > 0)
                     stream_bitrate += os->bit_rate;
-                else if (final)
+                else if (final && c->total_duration > 0)
                     stream_bitrate += os->pos * 8 * AV_TIME_BASE / c->total_duration;
                 else if (os->first_segment_bit_rate > 0)
                     stream_bitrate += os->first_segment_bit_rate;

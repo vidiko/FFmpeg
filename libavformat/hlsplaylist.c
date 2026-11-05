@@ -193,7 +193,7 @@ int ff_hls_write_file_entry(AVIOContext *out, int insert_discont,
         avio_printf(out, "%s", baseurl);
     avio_printf(out, "%s\n", filename);
 
-    return 0;
+    return out->error;
 }
 
 void ff_hls_write_end_list(AVIOContext *out)

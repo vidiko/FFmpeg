@@ -206,7 +206,7 @@ static int rtsp_write_packet(AVFormatContext *s, AVPacket *pkt)
              * interleaved packets internally. */
             ret = ff_rtsp_read_reply(s, &reply, NULL, 1, NULL);
             if (ret < 0)
-                return AVERROR(EPIPE);
+                return ret == AVERROR_EOF ? AVERROR(EPIPE) : ret;
             if (ret == 1) {
                 ret = ff_rtsp_skip_packet(s);
                 if (ret < 0)

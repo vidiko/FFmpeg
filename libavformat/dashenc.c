@@ -1744,6 +1744,9 @@ static int dashenc_delete_segment_file(AVFormatContext *s, const char* file)
     DASHContext *c = s->priv_data;
     AVBPrint buf;
 
+    if (!file || !file[0])
+        return 0;
+
     av_bprint_init(&buf, 0, AV_BPRINT_SIZE_UNLIMITED);
 
     av_bprintf(&buf, "%s%s", c->dirname, file);
@@ -1761,8 +1764,11 @@ static int dashenc_delete_segment_file(AVFormatContext *s, const char* file)
 
 static inline void dashenc_delete_media_segments(AVFormatContext *s, OutputStream *os, int remove_count)
 {
+    DASHContext *c = s->priv_data;
+
     for (int i = 0; i < remove_count; ++i) {
-        dashenc_delete_segment_file(s, os->segments[i]->file);
+        if (!c->single_file)
+            dashenc_delete_segment_file(s, os->segments[i]->file);
 
         // Delete the segment regardless of whether the file was successfully deleted
         av_free(os->segments[i]);

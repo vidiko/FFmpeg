@@ -24,6 +24,17 @@ fate-dash-mpd-timing: tests/data/dash_mpd_timing.mpd
 fate-dash-mpd-timing: CMD = sed -n -e /suggestedPresentationDelay=/p -e /availabilityStartTime=/p $(TARGET_PATH)/tests/data/dash_mpd_timing.mpd
 fate-dash-mpd-timing: CMP = diff
 
+FATE_DASHENC_LAVFI-$(call ALLYES, TESTSRC2_FILTER LAVFI_INDEV WRAPPED_AVFRAME_DECODER MPEG4_ENCODER DASH_MUXER MP4_MUXER FILE_PROTOCOL) += fate-dash-single-file-trim
+fate-dash-single-file-trim: CLEANFILES = tests/data/dash_single_file_trim/out.mpd tests/data/dash_single_file_trim/media.mp4 tests/data/dash_single_file_trim/err.log
+fate-dash-single-file-trim: CMD = mkdir -p tests/data/dash_single_file_trim && \
+    ffmpeg -nostdin -loglevel error -f lavfi -i testsrc2=size=64x64:rate=1:duration=3 \
+    -c:v mpeg4 -threads 1 -g 1 -single_file 1 -window_size 1 -extra_window_size 0 -seg_duration 1 \
+    -single_file_name media.mp4 -f dash -y $(TARGET_PATH)/tests/data/dash_single_file_trim/out.mpd \
+    2>tests/data/dash_single_file_trim/err.log && \
+    ! grep -q "failed to delete" tests/data/dash_single_file_trim/err.log && \
+    test -s tests/data/dash_single_file_trim/media.mp4 && echo media file exists
+fate-dash-single-file-trim: CMP = diff
+
 tests/data/dash_big_init.mpd: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data
 	$(M)$(TARGET_EXEC) $(TARGET_PATH)/$< -nostdin \
 	-filter_complex "aevalsrc=cos(2*PI*t)*sin(2*PI*(440+4*t)*t):d=2:s=16000,asplit=100" \

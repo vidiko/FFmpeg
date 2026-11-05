@@ -1258,6 +1258,9 @@ output.
 @item ignore_io_errors @var{bool}
 Ignore IO errors during open and write. Useful for long-duration runs
 with network output. This is disabled by default.
+On single-file output, an ignored write error stops that representation:
+its completed segments stay listed, its later packets are dropped, and
+the other representations continue.
 
 @item index_correction @var{bool}
 Enable or disable segment index correction logic. Applicable only when

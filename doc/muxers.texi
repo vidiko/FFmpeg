@@ -1200,8 +1200,10 @@ the dash segment files will be in WebM format
 @end table
 
 @item extra_window_size @var{size}
-Set the maximum number of segments kept outside of the manifest before
-removing from disk.
+Set the number of segments to keep outside the manifest window before
+removing them from disk. This is not a hard storage limit: failed manifest
+publication or a lagging HLS media playlist can cause additional segments
+to be retained.
 
 @item format_options @var{options_list}
 Set container format (mp4/webm) options using a @code{:}-separated list of

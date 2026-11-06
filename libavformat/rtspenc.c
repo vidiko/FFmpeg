@@ -210,7 +210,7 @@ static int rtsp_write_packet(AVFormatContext *s, AVPacket *pkt)
             if (ret == 1) {
                 ret = ff_rtsp_skip_packet(s);
                 if (ret < 0)
-                    return ret;
+                    return ret == AVERROR_EOF ? AVERROR(EPIPE) : ret;
             }
             /* XXX: parse message */
             if (rt->state != RTSP_STATE_STREAMING)

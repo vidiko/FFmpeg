@@ -228,8 +228,11 @@ static int rtsp_write_packet(AVFormatContext *s, AVPacket *pkt)
      * transport, rtpctx->pb is only a dyn_packet_buf that queues up the
      * packets, so we need to send them out on the TCP connection separately.
      */
-    if (!ret && rt->lower_transport == RTSP_LOWER_TRANSPORT_TCP)
+    if (!ret && rt->lower_transport == RTSP_LOWER_TRANSPORT_TCP) {
         ret = ff_rtsp_tcp_write_packet(s, rtsp_st);
+        if (ret == AVERROR_EOF)
+            ret = AVERROR(EPIPE);
+    }
     return ret;
 }
 

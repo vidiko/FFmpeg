@@ -752,7 +752,7 @@ int ff_rtsp_make_setup_request(AVFormatContext *s, const char *host, int port,
  * Undo the effect of ff_rtsp_make_setup_request, close the
  * transport_priv and rtp_handle fields.
  */
-void ff_rtsp_undo_setup(AVFormatContext *s, int send_packets);
+int ff_rtsp_undo_setup(AVFormatContext *s, int send_packets);
 
 /**
  * Open RTSP transport context.

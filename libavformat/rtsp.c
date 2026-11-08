@@ -806,10 +806,10 @@ int ff_sdp_parse(AVFormatContext *s, const char *content)
 }
 #endif /* CONFIG_RTPDEC */
 
-void ff_rtsp_undo_setup(AVFormatContext *s, int send_packets)
+int ff_rtsp_undo_setup(AVFormatContext *s, int send_packets)
 {
     RTSPState *rt = s->priv_data;
-    int i;
+    int i, ret = 0;
 
     rt->stored_msg.expected_seq = -1;
     for (i = 0; i < rt->nb_rtsp_streams; i++) {
@@ -821,8 +821,11 @@ void ff_rtsp_undo_setup(AVFormatContext *s, int send_packets)
                 AVFormatContext *rtpctx = rtsp_st->transport_priv;
                 av_write_trailer(rtpctx);
                 if (rt->lower_transport == RTSP_LOWER_TRANSPORT_TCP) {
-                    if (CONFIG_RTSP_MUXER && rtpctx->pb && send_packets)
-                        ff_rtsp_tcp_write_packet(s, rtsp_st);
+                    if (CONFIG_RTSP_MUXER && rtpctx->pb && send_packets) {
+                        int res = ff_rtsp_tcp_write_packet(s, rtsp_st);
+                        if (res < 0 && ret >= 0)
+                            ret = res;
+                    }
                     ffio_free_dyn_buf(&rtpctx->pb);
                 } else {
                     avio_closep(&rtpctx->pb);
@@ -836,6 +839,7 @@ void ff_rtsp_undo_setup(AVFormatContext *s, int send_packets)
         rtsp_st->transport_priv = NULL;
         ffurl_closep(&rtsp_st->rtp_handle);
     }
+    return ret;
 }
 
 /* close and free RTSP streams */

@@ -83,6 +83,7 @@ typedef struct HQDN3DVulkanContext {
     AVBufferRef *out_frames_ref;
 } HQDN3DVulkanContext;
 
+/* Check if pixel format is supported, set depth/MSB/semiplanar properties, return 0 or ENOSYS. */
 static int validate_format(AVFilterContext *ctx, enum AVPixelFormat sw_format,
                            int *depth, int *is_msb, int *is_semiplanar)
 {
@@ -139,6 +140,7 @@ static int validate_format(AVFilterContext *ctx, enum AVPixelFormat sw_format,
     }
 }
 
+/* Set default filter strengths and initialize the Vulkan context, returning 0 on success. */
 static av_cold int hqdn3d_vulkan_init(AVFilterContext *ctx)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -153,6 +155,7 @@ static av_cold int hqdn3d_vulkan_init(AVFilterContext *ctx)
     return ff_vk_filter_init(ctx);
 }
 
+/* Free GPU coefficient lookup table, horizontal intermediate, and temporal history buffers. */
 static void free_buffers(AVFilterContext *ctx)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -163,6 +166,7 @@ static void free_buffers(AVFilterContext *ctx)
     ff_vk_free_buf(vkctx, &s->frame_ant_buf);
 }
 
+/* Release execution pool, compute shaders, buffers, output frames context, and Vulkan state. */
 static av_cold void hqdn3d_vulkan_uninit(AVFilterContext *ctx)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -178,6 +182,7 @@ static av_cold void hqdn3d_vulkan_uninit(AVFilterContext *ctx)
     s->initialized = 0;
 }
 
+/* Map coefficient buffer, precalculate LUT tables for all four channels, and unmap buffer. */
 static int calc_coefs(AVFilterContext *ctx)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -201,6 +206,7 @@ static int calc_coefs(AVFilterContext *ctx)
     return ff_vk_unmap_buffer(&s->vkctx, &s->tables_buf, 1);
 }
 
+/* Allocate Vulkan storage buffers for coefficient LUTs, intermediate rows, and history frame. */
 static int init_buffers(AVFilterContext *ctx, int w, int h)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -234,6 +240,7 @@ static int init_buffers(AVFilterContext *ctx, int w, int h)
     return 0;
 }
 
+/* Compile and link the horizontal filtering compute shader pipeline and register execution. */
 static int init_pipeline_horizontal(AVFilterContext *ctx, int planes)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -265,6 +272,7 @@ static int init_pipeline_horizontal(AVFilterContext *ctx, int planes)
     return ff_vk_shader_register_exec(vkctx, &s->e, &s->shd_horizontal);
 }
 
+/* Compile and link the vertical/temporal compute shader pipeline and register execution. */
 static int init_pipeline_vertical(AVFilterContext *ctx, int planes)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -298,6 +306,7 @@ static int init_pipeline_vertical(AVFilterContext *ctx, int planes)
     return ff_vk_shader_register_exec(vkctx, &s->e, &s->shd_vertical);
 }
 
+/* Find compute queue, initialize execution pool, allocate buffers, and compile shader pipelines. */
 static int init_filter(AVFilterContext *ctx, AVFrame *in)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -336,6 +345,7 @@ static int init_filter(AVFilterContext *ctx, AVFrame *in)
     return 0;
 }
 
+/* Populate shader push constant structure with plane dimensions, buffer offsets, and bit depth. */
 static void prepare_push_data(HQDN3DVulkanContext *s, HQDN3DShaderPushData *pd, int p, int w, int h)
 {
     int lut_bits = HQDN3D_LUT_BITS(s->depth);
@@ -389,6 +399,7 @@ static void prepare_push_data(HQDN3DVulkanContext *s, HQDN3DShaderPushData *pd, 
     }
 }
 
+/* Bind input image views, coefficient tables, and horizontal intermediate buffer to descriptors. */
 static int update_descriptors_horizontal(HQDN3DVulkanContext *s, FFVkExecContext *exec,
                                          AVFrame *in, VkImageView *in_views)
 {
@@ -405,6 +416,7 @@ static int update_descriptors_horizontal(HQDN3DVulkanContext *s, FFVkExecContext
                                            &s->h_buf, 0, s->h_buf.size, VK_FORMAT_UNDEFINED);
 }
 
+/* Bind input and output image views, LUTs, intermediate, and history buffers to descriptors. */
 static int update_descriptors_vertical(HQDN3DVulkanContext *s, FFVkExecContext *exec,
                                        AVFrame *in, AVFrame *out,
                                        VkImageView *in_views, VkImageView *out_views)
@@ -428,6 +440,7 @@ static int update_descriptors_vertical(HQDN3DVulkanContext *s, FFVkExecContext *
                                            &s->frame_ant_buf, 0, s->frame_ant_buf.size, VK_FORMAT_UNDEFINED);
 }
 
+/* Record horizontal and vertical compute dispatches separated by a pipeline memory barrier. */
 static int dispatch_passes(HQDN3DVulkanContext *s, FFVkExecContext *exec,
                            AVFrame *in, AVFrame *out,
                            VkImageView *in_views, VkImageView *out_views,
@@ -486,6 +499,7 @@ static int dispatch_passes(HQDN3DVulkanContext *s, FFVkExecContext *exec,
     return 0;
 }
 
+/* Allocate and initialize output Vulkan hardware frames context matching input properties. */
 static int create_out_frames_ctx(AVFilterContext *ctx, AVFrame *in)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -524,6 +538,7 @@ static int create_out_frames_ctx(AVFilterContext *ctx, AVFrame *in)
     return 0;
 }
 
+/* Verify in-stream format consistency and reinitialize buffers on frame dimension changes. */
 static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -566,6 +581,7 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
     return 0;
 }
 
+/* Create image views and insert pipeline barriers transitioning input and output frame images. */
 static int setup_views_and_barriers(HQDN3DVulkanContext *s, FFVkExecContext *exec,
                                     AVFrame *in, AVFrame *out,
                                     VkImageView *in_views, VkImageView *out_views)
@@ -641,6 +657,7 @@ static int alloc_output_frame(HQDN3DVulkanContext *s, AVFilterLink *outlink, AVF
     return 0;
 }
 
+/* Submit filtering command buffer to Vulkan queue, wait for execution, or discard on error. */
 static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
 {
     FFVulkanContext *vkctx = &s->vkctx;
@@ -671,6 +688,7 @@ fail:
     return err;
 }
 
+/* Validate incoming frame, lazily initialize pipelines, execute filter, and push output frame. */
 static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
 {
     AVFilterContext *ctx = link->dst;
@@ -711,6 +729,7 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
     return ff_filter_frame(outlink, out);
 }
 
+/* Apply runtime configuration command and recompute coefficient LUTs if filter is initialized. */
 static int process_command(AVFilterContext *ctx, const char *cmd, const char *args,
                            char *res, int res_len, int flags)
 {

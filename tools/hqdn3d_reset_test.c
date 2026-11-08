@@ -36,6 +36,7 @@
 #include "libavfilter/buffersink.h"
 #include "libavfilter/buffersrc.h"
 
+/* Return test frame dimensions for frame index n across three distinct resolution buckets. */
 static void get_frame_dims(int n, int *w, int *h)
 {
     if (n < 4) {
@@ -50,12 +51,14 @@ static void get_frame_dims(int n, int *w, int *h)
     }
 }
 
+/* Generate pseudo-random byte using linear congruential generator and advance 32-bit state. */
 static uint8_t lcg_rand(uint32_t *state)
 {
     *state = *state * 1664525u + 1013904223u;
     return (uint8_t)(*state >> 16);
 }
 
+/* Allocate YUV420P frame with index-based dimensions and fill planes with deterministic noise. */
 static int create_input_frame(int n, uint32_t *seed, AVFrame **out_frame)
 {
     int w, h, err;
@@ -89,6 +92,7 @@ static int create_input_frame(int n, uint32_t *seed, AVFrame **out_frame)
     return 0;
 }
 
+/* Create and initialize Vulkan hardware frames context with storage and transfer usage flags. */
 static int create_vk_frames_ctx(AVBufferRef *device_ref, int w, int h,
                                 enum AVPixelFormat sw_format, AVBufferRef **frames_out)
 {
@@ -123,6 +127,7 @@ static int create_vk_frames_ctx(AVBufferRef *device_ref, int w, int h,
     return 0;
 }
 
+/* Allocate GPU frame from hardware frames context, upload software frame data, and copy props. */
 static int upload_vk_frame(AVBufferRef *frames_ref, AVFrame *sw_in, AVFrame **vk_out)
 {
     AVFrame *vk_f = av_frame_alloc();
@@ -153,6 +158,7 @@ static int upload_vk_frame(AVBufferRef *frames_ref, AVFrame *sw_in, AVFrame **vk
     return 0;
 }
 
+/* Transfer frame pixels from Vulkan hardware surface to newly allocated software YUV420P frame. */
 static int download_vk_frame(AVFrame *vk_in, AVFrame **sw_out)
 {
     AVFrame *sw_f = av_frame_alloc();
@@ -178,6 +184,7 @@ static int download_vk_frame(AVFrame *vk_in, AVFrame **sw_out)
     return 0;
 }
 
+/* Compare pixel data plane-by-plane between CPU and GPU frames, returning 1 if identical or 0. */
 static int compare_planes(const AVFrame *cpu_f, const AVFrame *gpu_f)
 {
     if (cpu_f->width != gpu_f->width || cpu_f->height != gpu_f->height)
@@ -196,6 +203,7 @@ static int compare_planes(const AVFrame *cpu_f, const AVFrame *gpu_f)
     return 1;
 }
 
+/* Connect source to middle filter, middle to sink, and validate complete filter graph layout. */
 static int link_and_config(AVFilterGraph *graph, AVFilterContext *src,
                            AVFilterContext *mid, AVFilterContext *sink)
 {
@@ -210,6 +218,7 @@ static int link_and_config(AVFilterGraph *graph, AVFilterContext *src,
     return avfilter_graph_config(graph, NULL);
 }
 
+/* Build CPU filter graph with buffer source, hqdn3d filter, and sink, returning 0 on success. */
 static int init_cpu_graph(AVFilterGraph **graph_out,
                           AVFilterContext **src_out,
                           AVFilterContext **sink_out)
@@ -257,6 +266,7 @@ static int init_cpu_graph(AVFilterGraph **graph_out,
     return 0;
 }
 
+/* Configure Vulkan buffer source with hardware frames context and video stream parameters. */
 static int init_gpu_buffersrc(AVFilterGraph *graph, const AVFilter *buf_filt,
                               AVBufferRef *initial_frames_ref, AVFilterContext **src_out)
 {
@@ -288,6 +298,7 @@ static int init_gpu_buffersrc(AVFilterGraph *graph, const AVFilter *buf_filt,
     return 0;
 }
 
+/* Build GPU filter graph linking Vulkan buffer source, hqdn3d_vulkan filter, and buffer sink. */
 static int init_gpu_graph(AVFilterGraph **graph_out,
                           AVFilterContext **src_out,
                           AVFilterContext **sink_out,
@@ -340,6 +351,7 @@ static int init_gpu_graph(AVFilterGraph **graph_out,
     return 0;
 }
 
+/* Push software frame into CPU graph, retrieve denoised output frame, and return 0 on success. */
 static int run_cpu_step(AVFilterContext *cpu_src, AVFilterContext *cpu_sink,
                         AVFrame *sw_frame, AVFrame **cpu_out)
 {
@@ -370,6 +382,7 @@ static int run_cpu_step(AVFilterContext *cpu_src, AVFilterContext *cpu_sink,
     return 0;
 }
 
+/* Upload frame to GPU, filter through Vulkan graph, download result to CPU, return 0 or error. */
 static int run_gpu_step(AVFilterContext *gpu_src, AVFilterContext *gpu_sink,
                         AVBufferRef *upload_ctx, AVFrame *sw_frame,
                         AVFrame **gpu_out_sw)
@@ -415,6 +428,7 @@ typedef struct ResetTest {
     AVFilterContext *cpu_src, *cpu_sink, *gpu_src, *gpu_sink;
 } ResetTest;
 
+/* Run one frame through CPU and GPU pipelines, verify pixel equality, and print status line. */
 static int process_one_frame(ResetTest *t, int n, uint32_t *seed, int *is_same)
 {
     AVFrame *sw_frame = NULL, *cpu_out = NULL, *gpu_out = NULL;
@@ -508,6 +522,7 @@ static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
     return 0;
 }
 
+/* Release all Vulkan hardware upload contexts, filter graphs, and device context reference. */
 static void cleanup_all(ResetTest *t)
 {
     for (int i = 0; i < 5; i++)
@@ -517,6 +532,7 @@ static void cleanup_all(ResetTest *t)
     av_buffer_unref(&t->vk_device_ref);
 }
 
+/* Initialize Vulkan hardware device, upload frames contexts for each test bucket, and graphs. */
 static int setup_all(const char *dev_idx, ResetTest *t)
 {
     int err;
@@ -556,6 +572,7 @@ static int setup_all(const char *dev_idx, ResetTest *t)
     return 0;
 }
 
+/* Verify GPU/CPU parity across resolution resets and in-stream format rejection; return 0 or 1. */
 int main(int argc, char **argv)
 {
     ResetTest t = { 0 };

@@ -1,4 +1,5 @@
 TOOLS = enc_recon_frame_test enum_options qt-faststart scale_slice_test trasher uncoded_frame
+TOOLS-$(CONFIG_HQDN3D_VULKAN_FILTER) += hqdn3d_reset_test
 TOOLS-$(CONFIG_LIBMYSOFA) += sofa2wavs
 TOOLS-$(CONFIG_ZLIB) += cws2fws
 

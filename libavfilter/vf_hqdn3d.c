@@ -40,6 +40,7 @@
 #include "filters.h"
 #include "video.h"
 #include "vf_hqdn3d.h"
+#include "hqdn3d_coefs.h"
 
 #define LUT_BITS (depth==16 ? 8 : 4)
 #define LOAD(x) (((depth == 8 ? src[x] : AV_RN16A(src + (x) * 2)) << (16 - depth))\
@@ -167,39 +168,11 @@ static int denoise_depth(HQDN3DContext *s,
             return ret;                                                       \
     } while (0)
 
-static void precalc_coefs(double dist25, int depth, int16_t *ct)
-{
-    int i;
-    double gamma, simil, C;
-
-    gamma = log(0.25) / log(1.0 - FFMIN(dist25,252.0)/255.0 - 0.00001);
-
-    for (i = -(256<<LUT_BITS); i < 256<<LUT_BITS; i++) {
-        double f = (i * (1 << (9-LUT_BITS)) + (1<<(8-LUT_BITS)) - 1) / 512.0; // midpoint of the bin
-        simil = FFMAX(0, 1.0 - fabs(f) / 255.0);
-        C = pow(simil, gamma) * 256.0 * f;
-        ct[(256<<LUT_BITS)+i] = lrint(C);
-    }
-
-    ct[0] = !!dist25;
-}
-
-#define PARAM1_DEFAULT 4.0
-#define PARAM2_DEFAULT 3.0
-#define PARAM3_DEFAULT 6.0
-
 static av_cold int init(AVFilterContext *ctx)
 {
     HQDN3DContext *s = ctx->priv;
 
-    if (!s->strength[LUMA_SPATIAL])
-        s->strength[LUMA_SPATIAL] = PARAM1_DEFAULT;
-    if (!s->strength[CHROMA_SPATIAL])
-        s->strength[CHROMA_SPATIAL] = PARAM2_DEFAULT * s->strength[LUMA_SPATIAL] / PARAM1_DEFAULT;
-    if (!s->strength[LUMA_TMP])
-        s->strength[LUMA_TMP]   = PARAM3_DEFAULT * s->strength[LUMA_SPATIAL] / PARAM1_DEFAULT;
-    if (!s->strength[CHROMA_TMP])
-        s->strength[CHROMA_TMP] = s->strength[LUMA_TMP] * s->strength[CHROMA_SPATIAL] / s->strength[LUMA_SPATIAL];
+    ff_hqdn3d_default_strengths(s->strength);
 
     av_log(ctx, AV_LOG_VERBOSE, "ls:%f cs:%f lt:%f ct:%f\n",
            s->strength[LUMA_SPATIAL], s->strength[CHROMA_SPATIAL],
@@ -243,7 +216,7 @@ static void calc_coefs(AVFilterContext *ctx)
     HQDN3DContext *s = ctx->priv;
 
     for (int i = 0; i < 4; i++)
-        precalc_coefs(s->strength[i], s->depth, s->coefs[i]);
+        ff_hqdn3d_precalc_coefs(s->strength[i], s->depth, s->coefs[i]);
 }
 
 static int config_input(AVFilterLink *inlink)

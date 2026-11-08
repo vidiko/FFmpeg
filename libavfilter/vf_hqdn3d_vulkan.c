@@ -242,7 +242,6 @@ static int init_pipeline_horizontal(AVFilterContext *ctx, int planes)
         { .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  .stages = VK_SHADER_STAGE_COMPUTE_BIT, .elems = planes },
         { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .stages = VK_SHADER_STAGE_COMPUTE_BIT, .elems = 1 },
         { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .stages = VK_SHADER_STAGE_COMPUTE_BIT, .elems = 1 },
-        { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .stages = VK_SHADER_STAGE_COMPUTE_BIT, .elems = 1 },
     };
     int err;
 
@@ -402,12 +401,8 @@ static int update_descriptors_horizontal(HQDN3DVulkanContext *s, FFVkExecContext
                                           &s->tables_buf, 0, s->tables_buf.size, VK_FORMAT_UNDEFINED);
     if (err < 0)
         return err;
-    err = ff_vk_shader_update_desc_buffer(vkctx, exec, &s->shd_horizontal, 0, 2, 0,
-                                          &s->h_buf, 0, s->h_buf.size, VK_FORMAT_UNDEFINED);
-    if (err < 0)
-        return err;
-    return ff_vk_shader_update_desc_buffer(vkctx, exec, &s->shd_horizontal, 0, 3, 0,
-                                           &s->frame_ant_buf, 0, s->frame_ant_buf.size, VK_FORMAT_UNDEFINED);
+    return ff_vk_shader_update_desc_buffer(vkctx, exec, &s->shd_horizontal, 0, 2, 0,
+                                           &s->h_buf, 0, s->h_buf.size, VK_FORMAT_UNDEFINED);
 }
 
 static int update_descriptors_vertical(HQDN3DVulkanContext *s, FFVkExecContext *exec,
@@ -535,11 +530,23 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
     AVHWFramesContext *hwfc = (AVHWFramesContext *)in->hw_frames_ctx->data;
     int err;
 
+    if (s->initialized && hwfc->sw_format != s->sw_format) {
+        av_log(ctx, AV_LOG_ERROR, "Input pixel format changed from %s to %s within the stream\n",
+               av_get_pix_fmt_name(s->sw_format), av_get_pix_fmt_name(hwfc->sw_format));
+        return AVERROR(EINVAL);
+    }
+
     err = validate_format(ctx, hwfc->sw_format, &s->depth, &s->is_msb, &s->is_semiplanar);
     if (err < 0)
         return err;
 
-    if (in->width != s->width || in->height != s->height || hwfc->sw_format != s->sw_format) {
+    if (!s->initialized) {
+        s->sw_format = hwfc->sw_format;
+        s->hsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_w;
+        s->vsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_h;
+    }
+
+    if (in->width != s->width || in->height != s->height) {
         if (s->initialized) {
             free_buffers(ctx);
             err = init_buffers(ctx, in->width, in->height);
@@ -553,11 +560,8 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
                 return err;
             s->first_frame = 1;
         }
-        s->sw_format = hwfc->sw_format;
         s->width = in->width;
         s->height = in->height;
-        s->hsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_w;
-        s->vsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_h;
     }
     return 0;
 }
@@ -644,11 +648,11 @@ static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
 
     err = setup_views_and_barriers(s, exec, in, out, in_views, out_views);
     if (err < 0)
-        return err;
+        goto fail;
 
     err = dispatch_passes(s, exec, in, out, in_views, out_views, in->width, in->height);
     if (err < 0)
-        return err;
+        goto fail;
 
     err = ff_vk_exec_submit(vkctx, exec);
     if (err < 0)
@@ -656,6 +660,10 @@ static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
     ff_vk_exec_wait(vkctx, exec);
 
     return 0;
+
+fail:
+    ff_vk_exec_discard(vkctx, exec);
+    return err;
 }
 
 static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)

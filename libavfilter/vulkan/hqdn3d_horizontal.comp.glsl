@@ -41,10 +41,6 @@ layout (set = 0, binding = 2, scalar) buffer HBuffer {
     uint16_t h_data[];
 };
 
-layout (set = 0, binding = 3, scalar) buffer FrameAntBuffer {
-    uint16_t frame_ant_data[];
-};
-
 layout (push_constant, scalar) uniform PushConsts {
     uint width;
     uint height;

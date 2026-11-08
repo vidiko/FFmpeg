@@ -408,10 +408,14 @@ static int run_gpu_step(AVFilterContext *gpu_src, AVFilterContext *gpu_sink,
     return 0;
 }
 
-static int process_one_frame(AVFilterContext *cpu_src, AVFilterContext *cpu_sink,
-                             AVFilterContext *gpu_src, AVFilterContext *gpu_sink,
-                             AVBufferRef **upload_ctxs, int n,
-                             uint32_t *seed, int *is_same)
+typedef struct ResetTest {
+    AVBufferRef *vk_device_ref;
+    AVBufferRef *upload_ctxs[5];
+    AVFilterGraph *cpu_graph, *gpu_graph;
+    AVFilterContext *cpu_src, *cpu_sink, *gpu_src, *gpu_sink;
+} ResetTest;
+
+static int process_one_frame(ResetTest *t, int n, uint32_t *seed, int *is_same)
 {
     AVFrame *sw_frame = NULL, *cpu_out = NULL, *gpu_out = NULL;
     int bucket = (n < 4) ? 0 : ((n < 8) ? 1 : 2);
@@ -421,13 +425,13 @@ static int process_one_frame(AVFilterContext *cpu_src, AVFilterContext *cpu_sink
     if (err < 0)
         return err;
 
-    err = run_cpu_step(cpu_src, cpu_sink, sw_frame, &cpu_out);
+    err = run_cpu_step(t->cpu_src, t->cpu_sink, sw_frame, &cpu_out);
     if (err < 0) {
         av_frame_free(&sw_frame);
         return err;
     }
 
-    err = run_gpu_step(gpu_src, gpu_sink, upload_ctxs[bucket], sw_frame, &gpu_out);
+    err = run_gpu_step(t->gpu_src, t->gpu_sink, t->upload_ctxs[bucket], sw_frame, &gpu_out);
     av_frame_free(&sw_frame);
     if (err < 0) {
         av_frame_free(&cpu_out);
@@ -444,51 +448,108 @@ static int process_one_frame(AVFilterContext *cpu_src, AVFilterContext *cpu_sink
     return 0;
 }
 
-static void cleanup_all(AVBufferRef **vk_device_ref,
-                        AVBufferRef **upload_ctxs,
-                        AVFilterGraph **cpu_graph,
-                        AVFilterGraph **gpu_graph)
+/* Verify whether an in-stream pixel format change is rejected by the filter. */
+static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
+                           AVBufferRef *frames_ref, int *refused)
 {
-    for (int i = 0; i < 3; i++)
-        av_buffer_unref(&upload_ctxs[i]);
-    avfilter_graph_free(cpu_graph);
-    avfilter_graph_free(gpu_graph);
-    av_buffer_unref(vk_device_ref);
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(fmt);
+    AVFrame *sw_f = av_frame_alloc();
+    AVFrame *gpu_in_vk = NULL;
+    AVFrame *out = av_frame_alloc();
+    int err;
+
+    if (!desc || !sw_f || !out) {
+        av_frame_free(&sw_f);
+        av_frame_free(&out);
+        return AVERROR(ENOMEM);
+    }
+
+    sw_f->format = fmt;
+    sw_f->width  = 160;
+    sw_f->height = 96;
+    sw_f->pts    = n;
+
+    err = av_frame_get_buffer(sw_f, 0);
+    if (err < 0) {
+        av_frame_free(&sw_f);
+        av_frame_free(&out);
+        return err;
+    }
+
+    for (int p = 0; p < desc->nb_components && sw_f->data[p]; p++) {
+        int plane_h = (p == 1 || p == 2) ? AV_CEIL_RSHIFT(sw_f->height, desc->log2_chroma_h) : sw_f->height;
+        for (int y = 0; y < plane_h; y++)
+            memset(sw_f->data[p] + y * sw_f->linesize[p], 0, FFABS(sw_f->linesize[p]));
+    }
+
+    err = upload_vk_frame(frames_ref, sw_f, &gpu_in_vk);
+    av_frame_free(&sw_f);
+    if (err < 0) {
+        av_frame_free(&out);
+        return err;
+    }
+
+    err = av_buffersrc_add_frame(t->gpu_src, gpu_in_vk);
+    av_frame_free(&gpu_in_vk);
+    if (err < 0 && err != AVERROR(EAGAIN)) {
+        *refused = 1;
+    } else {
+        err = av_buffersink_get_frame(t->gpu_sink, out);
+        if (err < 0 && err != AVERROR(EAGAIN))
+            *refused = 1;
+        else
+            *refused = 0;
+    }
+    av_frame_free(&out);
+
+    printf("%d 160 96 %s %s\n", n, av_get_pix_fmt_name(fmt),
+           *refused ? "refused" : "accepted");
+    fflush(stdout);
+    return 0;
 }
 
-static int setup_all(const char *dev_idx,
-                     AVBufferRef **vk_device_ref,
-                     AVBufferRef **upload_ctxs,
-                     AVFilterGraph **cpu_graph,
-                     AVFilterContext **cpu_src,
-                     AVFilterContext **cpu_sink,
-                     AVFilterGraph **gpu_graph,
-                     AVFilterContext **gpu_src,
-                     AVFilterContext **gpu_sink)
+static void cleanup_all(ResetTest *t)
+{
+    for (int i = 0; i < 5; i++)
+        av_buffer_unref(&t->upload_ctxs[i]);
+    avfilter_graph_free(&t->cpu_graph);
+    avfilter_graph_free(&t->gpu_graph);
+    av_buffer_unref(&t->vk_device_ref);
+}
+
+static int setup_all(const char *dev_idx, ResetTest *t)
 {
     int err;
 
-    err = av_hwdevice_ctx_create(vk_device_ref, AV_HWDEVICE_TYPE_VULKAN, dev_idx, NULL, 0);
+    err = av_hwdevice_ctx_create(&t->vk_device_ref, AV_HWDEVICE_TYPE_VULKAN, dev_idx, NULL, 0);
     if (err < 0)
         return err;
 
-    err = create_vk_frames_ctx(*vk_device_ref, 128, 72, AV_PIX_FMT_YUV420P, &upload_ctxs[0]);
+    err = create_vk_frames_ctx(t->vk_device_ref, 128, 72, AV_PIX_FMT_YUV420P, &t->upload_ctxs[0]);
     if (err < 0)
         return err;
 
-    err = create_vk_frames_ctx(*vk_device_ref, 96, 56, AV_PIX_FMT_YUV420P, &upload_ctxs[1]);
+    err = create_vk_frames_ctx(t->vk_device_ref, 96, 56, AV_PIX_FMT_YUV420P, &t->upload_ctxs[1]);
     if (err < 0)
         return err;
 
-    err = create_vk_frames_ctx(*vk_device_ref, 160, 96, AV_PIX_FMT_YUV420P, &upload_ctxs[2]);
+    err = create_vk_frames_ctx(t->vk_device_ref, 160, 96, AV_PIX_FMT_YUV420P, &t->upload_ctxs[2]);
     if (err < 0)
         return err;
 
-    err = init_cpu_graph(cpu_graph, cpu_src, cpu_sink);
+    err = create_vk_frames_ctx(t->vk_device_ref, 160, 96, AV_PIX_FMT_YUV420P10, &t->upload_ctxs[3]);
     if (err < 0)
         return err;
 
-    err = init_gpu_graph(gpu_graph, gpu_src, gpu_sink, *vk_device_ref, upload_ctxs[0]);
+    err = create_vk_frames_ctx(t->vk_device_ref, 160, 96, AV_PIX_FMT_YUV444P, &t->upload_ctxs[4]);
+    if (err < 0)
+        return err;
+
+    err = init_cpu_graph(&t->cpu_graph, &t->cpu_src, &t->cpu_sink);
+    if (err < 0)
+        return err;
+
+    err = init_gpu_graph(&t->gpu_graph, &t->gpu_src, &t->gpu_sink, t->vk_device_ref, t->upload_ctxs[0]);
     if (err < 0)
         return err;
 
@@ -497,14 +558,11 @@ static int setup_all(const char *dev_idx,
 
 int main(int argc, char **argv)
 {
-    AVBufferRef *vk_device_ref = NULL;
-    AVBufferRef *upload_ctxs[3] = { NULL, NULL, NULL };
-    AVFilterGraph *cpu_graph = NULL, *gpu_graph = NULL;
-    AVFilterContext *cpu_src = NULL, *cpu_sink = NULL;
-    AVFilterContext *gpu_src = NULL, *gpu_sink = NULL;
+    ResetTest t = { 0 };
     const char *dev_idx;
     uint32_t seed = 0x12345678;
     int err, any_diff = 0, frames_ok = 0;
+    int refused_10 = 0, refused_444 = 0;
 
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <vulkan device index>\n", argv[0]);
@@ -514,18 +572,15 @@ int main(int argc, char **argv)
 
     av_log_set_level(AV_LOG_ERROR);
 
-    err = setup_all(dev_idx, &vk_device_ref, upload_ctxs,
-                    &cpu_graph, &cpu_src, &cpu_sink,
-                    &gpu_graph, &gpu_src, &gpu_sink);
+    err = setup_all(dev_idx, &t);
     if (err < 0) {
-        cleanup_all(&vk_device_ref, upload_ctxs, &cpu_graph, &gpu_graph);
+        cleanup_all(&t);
         return 1;
     }
 
     for (int n = 0; n < 12; n++) {
         int is_same = 0;
-        err = process_one_frame(cpu_src, cpu_sink, gpu_src, gpu_sink,
-                                upload_ctxs, n, &seed, &is_same);
+        err = process_one_frame(&t, n, &seed, &is_same);
         if (err < 0) {
             any_diff = 1;
             break;
@@ -535,6 +590,24 @@ int main(int argc, char **argv)
             any_diff = 1;
     }
 
-    cleanup_all(&vk_device_ref, upload_ctxs, &cpu_graph, &gpu_graph);
-    return (frames_ok == 12 && !any_diff) ? 0 : 1;
+    if (frames_ok != 12 || any_diff) {
+        cleanup_all(&t);
+        return 1;
+    }
+
+    /* Test yuv420p10 first and abort if accepted, avoiding chroma buffer overflow from yuv444p on unpatched filters. */
+    err = run_format_step(&t, 12, AV_PIX_FMT_YUV420P10, t.upload_ctxs[3], &refused_10);
+    if (err < 0 || !refused_10) {
+        cleanup_all(&t);
+        return 1;
+    }
+
+    err = run_format_step(&t, 13, AV_PIX_FMT_YUV444P, t.upload_ctxs[4], &refused_444);
+    if (err < 0 || !refused_444) {
+        cleanup_all(&t);
+        return 1;
+    }
+
+    cleanup_all(&t);
+    return 0;
 }

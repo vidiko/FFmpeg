@@ -609,31 +609,36 @@ static int setup_views_and_barriers(HQDN3DVulkanContext *s, FFVkExecContext *exe
     return 0;
 }
 
-static AVFrame *alloc_output_frame(HQDN3DVulkanContext *s, AVFilterLink *outlink, AVFrame *in)
+/* Allocate an output frame and copy input frame properties. */
+static int alloc_output_frame(HQDN3DVulkanContext *s, AVFilterLink *outlink, AVFrame *in, AVFrame **out_ret)
 {
     AVFrame *out;
-    int err;
 
     if (s->out_frames_ref) {
+        int err;
+
         out = av_frame_alloc();
         if (!out)
-            return NULL;
+            return AVERROR(ENOMEM);
         err = av_hwframe_get_buffer(s->out_frames_ref, out, 0);
         if (err < 0) {
             av_frame_free(&out);
-            return NULL;
+            return err;
         }
     } else {
         out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
         if (!out)
-            return NULL;
+            return AVERROR(ENOMEM);
     }
 
-    if (av_frame_copy_props(out, in) < 0) {
+    int err = av_frame_copy_props(out, in);
+    if (err < 0) {
         av_frame_free(&out);
-        return NULL;
+        return err;
     }
-    return out;
+
+    *out_ret = out;
+    return 0;
 }
 
 static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
@@ -688,10 +693,10 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
         }
     }
 
-    out = alloc_output_frame(s, outlink, in);
-    if (!out) {
+    err = alloc_output_frame(s, outlink, in, &out);
+    if (err < 0) {
         av_frame_free(&in);
-        return AVERROR(ENOMEM);
+        return err;
     }
 
     err = exec_filter(s, in, out);

@@ -32,6 +32,7 @@ enum {
     EMPTY,
 };
 
+/* Write count AR coefficients with 5-bit precision starting from base. */
 static void put_coeffs(PutBitContext *bw, int count, int base)
 {
     int i;
@@ -41,6 +42,7 @@ static void put_coeffs(PutBitContext *bw, int count, int base)
         put_bits(bw, 5, (base + i + 16) & 31);
 }
 
+/* Write scaling points for a component, or an empty point list. */
 static void put_points(PutBitContext *bw, int uv, int empty)
 {
     int i;
@@ -65,6 +67,7 @@ static void put_points(PutBitContext *bw, int uv, int empty)
     }
 }
 
+/* Write predicted scaling points with the given residual bit depth. */
 static void put_predicted_points(PutBitContext *bw, int bits_res)
 {
     int i;
@@ -80,6 +83,7 @@ static void put_predicted_points(PutBitContext *bw, int bits_res)
     put_bits(bw, 3, 2);
 }
 
+/* Write one AFGS1 parameter set, reference or predicting the given component. */
 static void put_set(PutBitContext *bw, int component, int bits_res, int reference)
 {
     uint8_t *start = put_bits_ptr(bw);
@@ -158,6 +162,7 @@ static void put_set(PutBitContext *bw, int component, int bits_res, int referenc
     start[1] |= (payload_size & 1) << 7;
 }
 
+/* Build an AFGS1 payload with two parameter sets and return its size in bytes. */
 static int build_payload(uint8_t *payload, int component, int bits_res)
 {
     PutBitContext bw;
@@ -174,6 +179,7 @@ static int build_payload(uint8_t *payload, int component, int bits_res)
     return put_bytes_output(&bw);
 }
 
+/* Print the name, count, and coordinates of scaling points. */
 static void print_points(const char *name, int count, const uint8_t points[][2])
 {
     int i;
@@ -184,6 +190,7 @@ static void print_points(const char *name, int count, const uint8_t points[][2])
     printf("\n");
 }
 
+/* Print the name, count, and values of AR coefficients. */
 static void print_coeffs(const char *name, const int8_t *coeffs, int count)
 {
     int i;
@@ -194,6 +201,7 @@ static void print_coeffs(const char *name, const int8_t *coeffs, int count)
     printf("\n");
 }
 
+/* Parse an AFGS1 test payload and print the second set. */
 static void run_case(const char *name, int component, int bits_res)
 {
     AVFilmGrainAFGS1Params sets = { 0 };
@@ -229,6 +237,7 @@ static void run_case(const char *name, int component, int bits_res)
     ff_aom_uninit_film_grain_params(&sets);
 }
 
+/* Run AFGS1 film grain parameter prediction test cases. */
 int main(void)
 {
     run_case("y-zero", Y, 0);

@@ -692,6 +692,7 @@ TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats integral
 
 TESTPROGS-$(CONFIG_DRAWVG_FILTER) += drawvg
+TESTPROGS-$(CONFIG_ZSCALE_FILTER) += zscale_light_levels
 
 TOOLS-$(CONFIG_LIBZMQ) += zmqsend
 

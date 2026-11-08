@@ -239,18 +239,21 @@ static int rtsp_write_packet(AVFormatContext *s, AVPacket *pkt)
 static int rtsp_write_close(AVFormatContext *s)
 {
     RTSPState *rt = s->priv_data;
+    int ret;
 
     // If we want to send RTCP_BYE packets, these are sent by av_write_trailer.
     // Thus call this on all streams before doing the teardown. This is
     // done within ff_rtsp_undo_setup.
-    ff_rtsp_undo_setup(s, 1);
+    ret = ff_rtsp_undo_setup(s, 1);
+    if (ret == AVERROR_EOF)
+        ret = AVERROR(EPIPE);
 
     ff_rtsp_send_cmd_async(s, "TEARDOWN", rt->control_uri, NULL);
 
     ff_rtsp_close_streams(s);
     ff_rtsp_close_connections(s);
     ff_network_close();
-    return 0;
+    return ret;
 }
 
 const FFOutputFormat ff_rtsp_muxer = {

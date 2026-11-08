@@ -28,6 +28,7 @@
 
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 static const uint32_t pixel_mask[3] = { 0xffffffff, 0x03ff03ff, 0x0fff0fff };
@@ -76,10 +77,10 @@ static int get_alf_vb_pos(const int h, const int vb_pos_above)
 
 static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    uint8_t *dst0 = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1 = av_malloc(DST_BUF_SIZE);
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
     int16_t filter[LUMA_PARAMS_SIZE];
     int16_t clip[LUMA_PARAMS_SIZE];
 
@@ -93,6 +94,9 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
 
     declare_func(void, uint8_t *dst, ptrdiff_t dst_stride, const uint8_t *src, ptrdiff_t src_stride,
         int width, int height, const int16_t *filter, const int16_t *clip, const int vb_pos);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     randomize_buffers(src0, src1, SRC_BUF_SIZE);
     randomize_buffers2(filter, LUMA_PARAMS_SIZE, 1);
@@ -129,23 +133,33 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
             }
         }
     }
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(int, class_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, class_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int32_t, alf_gradient_tmp, [ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE * ALF_NUM_DIR]);
+    int *class_idx0     = av_malloc_array(SRC_BUF_SIZE, sizeof(*class_idx0));
+    int *transpose_idx0 = av_malloc_array(SRC_BUF_SIZE, sizeof(*transpose_idx0));
+    int *class_idx1     = av_malloc_array(SRC_BUF_SIZE, sizeof(*class_idx1));
+    int *transpose_idx1 = av_malloc_array(SRC_BUF_SIZE, sizeof(*transpose_idx1));
+    uint8_t *src0       = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1       = av_malloc(SRC_BUF_SIZE);
+    int32_t *alf_gradient_tmp = av_malloc_array(ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE * ALF_NUM_DIR,
+                                                 sizeof(*alf_gradient_tmp));
 
     ptrdiff_t stride = SRC_PIXEL_STRIDE * SIZEOF_PIXEL;
     int offset = (3 * SRC_PIXEL_STRIDE + 3) * SIZEOF_PIXEL;
 
     declare_func(void, int *class_idx, int *transpose_idx,
         const uint8_t *src, ptrdiff_t src_stride, int width, int height, int vb_pos, int *gradient_tmp);
+
+    if (!class_idx0 || !transpose_idx0 || !class_idx1 || !transpose_idx1 ||
+        !src0 || !src1 || !alf_gradient_tmp)
+        fail();
 
     randomize_buffers(src0, src1, SRC_BUF_SIZE);
 
@@ -173,6 +187,14 @@ static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
             }
         }
     }
+
+    av_free(class_idx0);
+    av_free(transpose_idx0);
+    av_free(class_idx1);
+    av_free(transpose_idx1);
+    av_free(src0);
+    av_free(src1);
+    av_free(alf_gradient_tmp);
 }
 
 void checkasm_check_vvc_alf(void)

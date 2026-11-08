@@ -28,6 +28,7 @@
 
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 static const uint32_t pixel_mask[] = { 0xffffffff, 0x03ff03ff, 0x0fff0fff, 0x3fff3fff, 0xffffffff };
@@ -74,14 +75,17 @@ static const int sizes[] = { 2, 4, 8, 16, 32, 64, 128 };
 
 static av_noinline void check_put_vvc_luma(void)
 {
-    LOCAL_ALIGNED_32(int16_t, dst0, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(int16_t, dst1, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    int16_t *dst0 = av_malloc_array(DST_BUF_SIZE / 2, sizeof(*dst0));
+    int16_t *dst1 = av_malloc_array(DST_BUF_SIZE / 2, sizeof(*dst1));
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
     VVCDSPContext c;
 
     declare_func(void, int16_t *dst, const uint8_t *src, const ptrdiff_t src_stride,
         const int height, const int8_t *hf, const int8_t *vf, const int width);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         randomize_pixels(src0, src1, SRC_BUF_SIZE);
@@ -118,19 +122,27 @@ static av_noinline void check_put_vvc_luma(void)
         }
     }
     report("put_luma");
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 static av_noinline void check_put_vvc_luma_uni(void)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    uint8_t *dst0 = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1 = av_malloc(DST_BUF_SIZE);
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
 
     VVCDSPContext c;
     declare_func(void, uint8_t *dst, ptrdiff_t dststride,
         const uint8_t *src, ptrdiff_t srcstride,  int height,
         const int8_t *hf, const int8_t *vf, int width);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         ff_vvc_dsp_init(&c, bit_depth);
@@ -169,18 +181,26 @@ static av_noinline void check_put_vvc_luma_uni(void)
         }
     }
     report("put_uni_luma");
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 static av_noinline void check_put_vvc_chroma(void)
 {
-    LOCAL_ALIGNED_32(int16_t, dst0, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(int16_t, dst1, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    int16_t *dst0 = av_malloc_array(DST_BUF_SIZE / 2, sizeof(*dst0));
+    int16_t *dst1 = av_malloc_array(DST_BUF_SIZE / 2, sizeof(*dst1));
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
     VVCDSPContext c;
 
     declare_func(void, int16_t *dst, const uint8_t *src, const ptrdiff_t src_stride,
         const int height, const int8_t *hf, const int8_t *vf, const int width);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         randomize_pixels(src0, src1, SRC_BUF_SIZE);
@@ -217,19 +237,27 @@ static av_noinline void check_put_vvc_chroma(void)
         }
     }
     report("put_chroma");
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 static av_noinline void check_put_vvc_chroma_uni(void)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    uint8_t *dst0 = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1 = av_malloc(DST_BUF_SIZE);
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
 
     VVCDSPContext c;
     declare_func(void, uint8_t *dst, ptrdiff_t dststride,
         const uint8_t *src, ptrdiff_t srcstride, int height,
         const int8_t *hf, const int8_t *vf, int width);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         ff_vvc_dsp_init(&c, bit_depth);
@@ -268,6 +296,11 @@ static av_noinline void check_put_vvc_chroma_uni(void)
         }
     }
     report("put_uni_chroma");
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 #define AVG_SRC_BUF_SIZE (MAX_CTU_SIZE * MAX_CTU_SIZE)
@@ -275,13 +308,16 @@ static av_noinline void check_put_vvc_chroma_uni(void)
 
 static av_noinline void check_avg(void)
 {
-    LOCAL_ALIGNED_32(int16_t, src00, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src01, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src10, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src11, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst0, [AVG_DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [AVG_DST_BUF_SIZE]);
+    int16_t *src00 = av_malloc_array(AVG_SRC_BUF_SIZE, sizeof(*src00));
+    int16_t *src01 = av_malloc_array(AVG_SRC_BUF_SIZE, sizeof(*src01));
+    int16_t *src10 = av_malloc_array(AVG_SRC_BUF_SIZE, sizeof(*src10));
+    int16_t *src11 = av_malloc_array(AVG_SRC_BUF_SIZE, sizeof(*src11));
+    uint8_t *dst0  = av_malloc(AVG_DST_BUF_SIZE);
+    uint8_t *dst1  = av_malloc(AVG_DST_BUF_SIZE);
     VVCDSPContext c;
+
+    if (!src00 || !src01 || !src10 || !src11 || !dst0 || !dst1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         randomize_avg_src((uint8_t*)src00, (uint8_t*)src10, AVG_SRC_BUF_SIZE * sizeof(int16_t));
@@ -330,20 +366,30 @@ static av_noinline void check_avg(void)
         }
     }
     report("avg");
+
+    av_free(src00);
+    av_free(src01);
+    av_free(src10);
+    av_free(src11);
+    av_free(dst0);
+    av_free(dst1);
 }
 
 #define SR_RANGE 2
 static av_noinline void check_dmvr(void)
 {
-    LOCAL_ALIGNED_32(uint16_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint16_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t,  src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t,  src1, [SRC_BUF_SIZE]);
+    uint16_t *dst0 = av_malloc_array(DST_BUF_SIZE, sizeof(*dst0));
+    uint16_t *dst1 = av_malloc_array(DST_BUF_SIZE, sizeof(*dst1));
+    uint8_t *src0  = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1  = av_malloc(SRC_BUF_SIZE);
     const int dst_stride = MAX_PB_SIZE;
 
     VVCDSPContext c;
     declare_func(void, int16_t *dst, const uint8_t *src, ptrdiff_t src_stride, int height,
         intptr_t mx, intptr_t my, int width);
+
+    if (!dst0 || !dst1 || !src0 || !src1)
+        fail();
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
         ff_vvc_dsp_init(&c, bit_depth);
@@ -388,6 +434,11 @@ static av_noinline void check_dmvr(void)
         }
     }
     report("dmvr");
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 #define BDOF_BLOCK_SIZE 16
@@ -435,9 +486,12 @@ static av_noinline void check_vvc_sad(void)
 {
     const int bit_depth = 10;
     VVCDSPContext c;
-    LOCAL_ALIGNED_32(uint16_t, src0, [MAX_CTU_SIZE * MAX_CTU_SIZE * 4]);
-    LOCAL_ALIGNED_32(uint16_t, src1, [MAX_CTU_SIZE * MAX_CTU_SIZE * 4]);
+    uint16_t *src0 = av_malloc_array(MAX_CTU_SIZE * MAX_CTU_SIZE * 4, sizeof(*src0));
+    uint16_t *src1 = av_malloc_array(MAX_CTU_SIZE * MAX_CTU_SIZE * 4, sizeof(*src1));
     declare_func(int, const int16_t *src0, const int16_t *src1, int dx, int dy, int block_w, int block_h);
+
+    if (!src0 || !src1)
+        fail();
 
     ff_vvc_dsp_init(&c, bit_depth);
     randomize_pixels(src0, src1, MAX_CTU_SIZE * MAX_CTU_SIZE * 4);
@@ -466,6 +520,9 @@ static av_noinline void check_vvc_sad(void)
     }
 
     report("sad");
+
+    av_free(src0);
+    av_free(src1);
 }
 
 void checkasm_check_vvc_mc(void)

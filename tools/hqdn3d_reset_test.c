@@ -382,7 +382,7 @@ static int run_cpu_step(AVFilterContext *cpu_src, AVFilterContext *cpu_sink,
     return 0;
 }
 
-/* Upload frame to GPU, filter through Vulkan graph, download result to CPU, return 0 or error. */
+/* Upload the software frame, run the GPU graph and download the output. */
 static int run_gpu_step(AVFilterContext *gpu_src, AVFilterContext *gpu_sink,
                         AVBufferRef *upload_ctx, AVFrame *sw_frame,
                         AVFrame **gpu_out_sw)
@@ -522,6 +522,52 @@ static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
     return 0;
 }
 
+/* Run a first frame larger than the link through fresh CPU/GPU graphs, verifying parity. */
+static int run_first_frame_step(ResetTest *t, int n, uint32_t *seed, int *is_same)
+{
+    AVFilterGraph *cpu_graph = NULL, *gpu_graph = NULL;
+    AVFilterContext *cpu_src = NULL, *cpu_sink = NULL;
+    AVFilterContext *gpu_src = NULL, *gpu_sink = NULL;
+    AVFrame *sw_frame = NULL, *cpu_out = NULL, *gpu_out = NULL;
+    int err;
+
+    *is_same = 0;
+
+    err = init_cpu_graph(&cpu_graph, &cpu_src, &cpu_sink);
+    if (err < 0)
+        goto end;
+
+    err = init_gpu_graph(&gpu_graph, &gpu_src, &gpu_sink, t->vk_device_ref, t->upload_ctxs[0]);
+    if (err < 0)
+        goto end;
+
+    err = create_input_frame(n, seed, &sw_frame);
+    if (err < 0)
+        goto end;
+
+    err = run_cpu_step(cpu_src, cpu_sink, sw_frame, &cpu_out);
+    if (err < 0)
+        goto end;
+
+    err = run_gpu_step(gpu_src, gpu_sink, t->upload_ctxs[2], sw_frame, &gpu_out);
+    if (err < 0)
+        goto end;
+
+    *is_same = (gpu_out->width == 160 && gpu_out->height == 96 &&
+                compare_planes(cpu_out, gpu_out));
+    printf("%d %d %d first %s\n", n, gpu_out->width, gpu_out->height,
+           *is_same ? "same" : "DIFF");
+    fflush(stdout);
+
+end:
+    av_frame_free(&sw_frame);
+    av_frame_free(&cpu_out);
+    av_frame_free(&gpu_out);
+    avfilter_graph_free(&cpu_graph);
+    avfilter_graph_free(&gpu_graph);
+    return err;
+}
+
 /* Release all Vulkan hardware upload contexts, filter graphs, and device context reference. */
 static void cleanup_all(ResetTest *t)
 {
@@ -572,13 +618,14 @@ static int setup_all(const char *dev_idx, ResetTest *t)
     return 0;
 }
 
-/* Verify GPU/CPU parity across resolution resets and in-stream format rejection; return 0 or 1. */
+/* Verify parity on resets, first frame larger than link, and format rejection; return 0 or 1. */
 int main(int argc, char **argv)
 {
     ResetTest t = { 0 };
     const char *dev_idx;
     uint32_t seed = 0x12345678;
     int err, any_diff = 0, frames_ok = 0;
+    int first_same = 0;
     int refused_10 = 0, refused_444 = 0;
 
     if (argc < 2) {
@@ -608,6 +655,12 @@ int main(int argc, char **argv)
     }
 
     if (frames_ok != 12 || any_diff) {
+        cleanup_all(&t);
+        return 1;
+    }
+
+    err = run_first_frame_step(&t, 14, &seed, &first_same);
+    if (err < 0 || !first_same) {
         cleanup_all(&t);
         return 1;
     }

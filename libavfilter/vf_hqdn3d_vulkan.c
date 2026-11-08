@@ -538,7 +538,7 @@ static int create_out_frames_ctx(AVFilterContext *ctx, AVFrame *in)
     return 0;
 }
 
-/* Verify in-stream format consistency and reinitialize buffers on frame dimension changes. */
+/* Check format, size output if first frame differs from link, reset buffers on size changes. */
 static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
 {
     HQDN3DVulkanContext *s = ctx->priv;
@@ -574,6 +574,12 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
             if (err < 0)
                 return err;
             s->first_frame = 1;
+        } else if (in->width  != ctx->outputs[0]->w ||
+                   in->height != ctx->outputs[0]->h) {
+            /* The first frame may differ from the configured link size. */
+            err = create_out_frames_ctx(ctx, in);
+            if (err < 0)
+                return err;
         }
         s->width = in->width;
         s->height = in->height;

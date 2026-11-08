@@ -3229,6 +3229,23 @@ Variable bit rate.
 Constant bit rate (not allowed in MP4 container).
 @end table
 
+@item qpfile @var{filename}
+Read per-frame macroblock QP offsets from @var{filename}, in the format
+described for the @ref{libaom-av1-qpfile,,libaom-av1 @option{qpfile} option},
+and pass them to x264 as quantizer offsets. x264 applies the offsets
+through adaptive quantization; the option is refused when x264 runs
+without adaptive quantization, that is with constant QP, or with
+@option{aq-mode} 0 or @option{aq-strength} 0 while @option{mbtree} is off;
+it is also refused with interlaced or fake-interlaced encoding. A frame uses
+the last record whose number is not greater than its own; a record without
+offset lines ends the offsets.
+
+This is not the format of the x264 command-line @option{--qpfile}
+option, which sets frame types and QPs: here the type and QP fields are
+checked but not used, and the type @samp{K} is refused. In two-pass
+encoding, give both passes the same file: x264 leaves the result
+undefined when the offsets differ between passes.
+
 @item x264opts @var{opts}
 @item x264-params @var{opts}
 Override the x264 configuration using a :-separated list of key=value

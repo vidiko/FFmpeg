@@ -75,7 +75,6 @@ typedef struct HQDN3DVulkanContext {
     int is_msb;
     int is_semiplanar;
     int width, height;
-    enum AVPixelFormat sw_format;
 
     int spatial_enabled[2];
     int first_frame;
@@ -217,7 +216,20 @@ static int init_buffers(AVFilterContext *ctx, int w, int h)
     int ch = AV_CEIL_RSHIFT(h, s->vsub);
     size_t samples = (size_t)w * h + (size_t)2 * cw * ch;
     size_t data_sz = samples * sizeof(uint16_t);
+    uint32_t limit = vkctx->props.properties.limits.maxStorageBufferRange;
     int err;
+
+    if (tables_sz > limit) {
+        av_log(ctx, AV_LOG_ERROR, "LUT tables need %zu bytes, above the device limit of %u\n",
+               tables_sz, limit);
+        return AVERROR(ENOTSUP);
+    }
+
+    if (data_sz > limit) {
+        av_log(ctx, AV_LOG_ERROR, "Frame of %dx%d needs %zu bytes per buffer, above the device limit of %u\n",
+               w, h, data_sz, limit);
+        return AVERROR(ENOTSUP);
+    }
 
     err = ff_vk_create_buf(vkctx, &s->tables_buf, tables_sz, NULL, NULL,
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -306,6 +318,64 @@ static int init_pipeline_vertical(AVFilterContext *ctx, int planes)
     return ff_vk_shader_register_exec(vkctx, &s->e, &s->shd_vertical);
 }
 
+/* Verify that the Vulkan device was created with all required shader and storage features enabled. */
+static int check_device_features(AVFilterContext *ctx)
+{
+    HQDN3DVulkanContext *s = ctx->priv;
+    FFVulkanContext *vkctx = &s->vkctx;
+    const VkPhysicalDeviceFeatures *feats = &vkctx->hwctx->device_features.features;
+    const void *pnext = vkctx->hwctx->device_features.pNext;
+    const VkPhysicalDeviceVulkan11Features *v11;
+    const VkPhysicalDevice16BitStorageFeatures *s16;
+    const VkPhysicalDeviceVulkan12Features *v12;
+    const VkPhysicalDeviceScalarBlockLayoutFeatures *sbl;
+    const VkPhysicalDeviceDescriptorIndexingFeatures *di;
+    int has_storageBuffer16BitAccess;
+    int has_scalarBlockLayout;
+    int has_runtimeDescriptorArray;
+
+    if (!feats->shaderInt16) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: shaderInt16\n");
+        return AVERROR(ENOTSUP);
+    }
+    if (!feats->shaderStorageImageReadWithoutFormat) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: shaderStorageImageReadWithoutFormat\n");
+        return AVERROR(ENOTSUP);
+    }
+    if (!feats->shaderStorageImageWriteWithoutFormat) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: shaderStorageImageWriteWithoutFormat\n");
+        return AVERROR(ENOTSUP);
+    }
+
+    v11 = ff_vk_find_struct(pnext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES);
+    s16 = ff_vk_find_struct(pnext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES);
+    has_storageBuffer16BitAccess = (v11 && v11->storageBuffer16BitAccess) ||
+                                   (s16 && s16->storageBuffer16BitAccess);
+    if (!has_storageBuffer16BitAccess) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: storageBuffer16BitAccess\n");
+        return AVERROR(ENOTSUP);
+    }
+
+    v12 = ff_vk_find_struct(pnext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES);
+    sbl = ff_vk_find_struct(pnext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES);
+    has_scalarBlockLayout = (v12 && v12->scalarBlockLayout) ||
+                            (sbl && sbl->scalarBlockLayout);
+    if (!has_scalarBlockLayout) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: scalarBlockLayout\n");
+        return AVERROR(ENOTSUP);
+    }
+
+    di = ff_vk_find_struct(pnext, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES);
+    has_runtimeDescriptorArray = (v12 && v12->runtimeDescriptorArray) ||
+                                 (di && di->runtimeDescriptorArray);
+    if (!has_runtimeDescriptorArray) {
+        av_log(ctx, AV_LOG_ERROR, "Vulkan device lacks required feature: runtimeDescriptorArray\n");
+        return AVERROR(ENOTSUP);
+    }
+
+    return 0;
+}
+
 /* Find compute queue, initialize execution pool, allocate buffers, and compile shader pipelines. */
 static int init_filter(AVFilterContext *ctx, AVFrame *in)
 {
@@ -313,6 +383,10 @@ static int init_filter(AVFilterContext *ctx, AVFrame *in)
     FFVulkanContext *vkctx = &s->vkctx;
     const int planes = av_pix_fmt_count_planes(s->vkctx.output_format);
     int err;
+
+    err = check_device_features(ctx);
+    if (err < 0)
+        return err;
 
     s->qf = ff_vk_qf_find(vkctx, VK_QUEUE_COMPUTE_BIT, 0);
     if (!s->qf) {
@@ -545,9 +619,9 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
     AVHWFramesContext *hwfc = (AVHWFramesContext *)in->hw_frames_ctx->data;
     int err;
 
-    if (s->initialized && hwfc->sw_format != s->sw_format) {
-        av_log(ctx, AV_LOG_ERROR, "Input pixel format changed from %s to %s within the stream\n",
-               av_get_pix_fmt_name(s->sw_format), av_get_pix_fmt_name(hwfc->sw_format));
+    if (hwfc->sw_format != s->vkctx.input_format) {
+        av_log(ctx, AV_LOG_ERROR, "Input pixel format changed from %s to %s\n",
+               av_get_pix_fmt_name(s->vkctx.input_format), av_get_pix_fmt_name(hwfc->sw_format));
         return AVERROR(EINVAL);
     }
 
@@ -556,7 +630,6 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
         return err;
 
     if (!s->initialized) {
-        s->sw_format = hwfc->sw_format;
         s->hsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_w;
         s->vsub = av_pix_fmt_desc_get(hwfc->sw_format)->log2_chroma_h;
     }
@@ -672,7 +745,9 @@ static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
     FFVkExecContext *exec = ff_vk_exec_get(vkctx, &s->e);
     int err;
 
-    ff_vk_exec_start(vkctx, exec);
+    err = ff_vk_exec_start(vkctx, exec);
+    if (err < 0)
+        return err;
 
     err = setup_views_and_barriers(s, exec, in, out, in_views, out_views);
     if (err < 0)

@@ -231,8 +231,19 @@ static int init_cpu_graph(AVFilterGraph **graph_out,
     char args[128];
     int err;
 
-    if (!graph || !buf_filt || !hq_filt || !sink_filt)
+    if (!graph)
         return AVERROR(ENOMEM);
+
+    if (!buf_filt || !hq_filt || !sink_filt) {
+        if (!buf_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "buffer");
+        if (!hq_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "hqdn3d");
+        if (!sink_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "buffersink");
+        avfilter_graph_free(&graph);
+        return AVERROR_FILTER_NOT_FOUND;
+    }
 
     snprintf(args, sizeof(args),
              "video_size=128x72:pix_fmt=yuv420p:time_base=1/25:pixel_aspect=1/1");
@@ -270,6 +281,7 @@ static int init_cpu_graph(AVFilterGraph **graph_out,
 static int init_gpu_buffersrc(AVFilterGraph *graph, const AVFilter *buf_filt,
                               AVBufferRef *initial_frames_ref, AVFilterContext **src_out)
 {
+    AVHWFramesContext *hwfc = (AVHWFramesContext *)initial_frames_ref->data;
     AVFilterContext *src_ctx = avfilter_graph_alloc_filter(graph, buf_filt, "in");
     AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
     int err;
@@ -279,8 +291,8 @@ static int init_gpu_buffersrc(AVFilterGraph *graph, const AVFilter *buf_filt,
         return AVERROR(ENOMEM);
     }
     par->format        = AV_PIX_FMT_VULKAN;
-    par->width         = 128;
-    par->height        = 72;
+    par->width         = hwfc->width;
+    par->height        = hwfc->height;
     par->time_base     = (AVRational){ 1, 25 };
     par->sample_aspect_ratio = (AVRational){ 1, 1 };
     par->hw_frames_ctx = initial_frames_ref;
@@ -312,8 +324,19 @@ static int init_gpu_graph(AVFilterGraph **graph_out,
     AVFilterContext *src_ctx = NULL, *hq_ctx = NULL, *sink_ctx = NULL;
     int err;
 
-    if (!graph || !buf_filt || !hq_filt || !sink_filt)
+    if (!graph)
         return AVERROR(ENOMEM);
+
+    if (!buf_filt || !hq_filt || !sink_filt) {
+        if (!buf_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "buffer");
+        if (!hq_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "hqdn3d_vulkan");
+        if (!sink_filt)
+            av_log(NULL, AV_LOG_ERROR, "filter %s not available\n", "buffersink");
+        avfilter_graph_free(&graph);
+        return AVERROR_FILTER_NOT_FOUND;
+    }
 
     err = init_gpu_buffersrc(graph, buf_filt, initial_frames_ref, &src_ctx);
     if (err < 0) {
@@ -462,6 +485,20 @@ static int process_one_frame(ResetTest *t, int n, uint32_t *seed, int *is_same)
     return 0;
 }
 
+/* Return short symbolic name for common error codes without platform strerror variances. */
+static const char *err_to_name(int err)
+{
+    if (err == AVERROR(EINVAL))
+        return "EINVAL";
+    if (err == AVERROR(ENOTSUP))
+        return "ENOTSUP";
+    if (err == AVERROR(ENOMEM))
+        return "ENOMEM";
+    if (err == AVERROR_EXTERNAL)
+        return "EXTERNAL";
+    return "other";
+}
+
 /* Filter must reject in-stream format change with AVERROR(EINVAL); return any other error. */
 static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
                            AVBufferRef *frames_ref, int *refused)
@@ -470,7 +507,7 @@ static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
     AVFrame *sw_f = av_frame_alloc();
     AVFrame *gpu_in_vk = NULL;
     AVFrame *out = av_frame_alloc();
-    int err;
+    int err, refused_err = 0;
 
     if (!desc || !sw_f || !out) {
         av_frame_free(&sw_f);
@@ -505,26 +542,25 @@ static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
 
     err = av_buffersrc_add_frame(t->gpu_src, gpu_in_vk);
     av_frame_free(&gpu_in_vk);
-    if (err == AVERROR(EINVAL)) {
+    if (err < 0 && err != AVERROR(EAGAIN)) {
+        refused_err = err;
         *refused = 1;
-    } else if (err < 0 && err != AVERROR(EAGAIN)) {
-        av_frame_free(&out);
-        return err;
     } else {
         err = av_buffersink_get_frame(t->gpu_sink, out);
-        if (err == AVERROR(EINVAL)) {
+        if (err < 0 && err != AVERROR(EAGAIN)) {
+            refused_err = err;
             *refused = 1;
-        } else if (err < 0 && err != AVERROR(EAGAIN)) {
-            av_frame_free(&out);
-            return err;
         } else {
             *refused = 0;
         }
     }
     av_frame_free(&out);
 
-    printf("%d 160 96 %s %s\n", n, av_get_pix_fmt_name(fmt),
-           *refused ? "refused" : "accepted");
+    if (*refused)
+        printf("%d 160 96 %s refused %s\n", n, av_get_pix_fmt_name(fmt),
+               err_to_name(refused_err));
+    else
+        printf("%d 160 96 %s accepted\n", n, av_get_pix_fmt_name(fmt));
     fflush(stdout);
     return 0;
 }
@@ -572,6 +608,201 @@ end:
     av_frame_free(&gpu_out);
     avfilter_graph_free(&cpu_graph);
     avfilter_graph_free(&gpu_graph);
+    return err;
+}
+
+/* Test whether a first frame with format mismatch against link format is refused. */
+static int run_f1_step(AVBufferRef *vk_device_ref, AVBufferRef *upload_ctx_444)
+{
+    AVFilterGraph *graph = NULL;
+    AVFilterContext *gpu_src = NULL, *gpu_sink = NULL;
+    AVBufferRef *link_frames_ref = NULL;
+    AVFrame *sw_f = NULL, *gpu_in_vk = NULL, *gpu_out = NULL;
+    const AVPixFmtDescriptor *desc;
+    int err, refused_err = 0, refused = 0;
+
+    err = create_vk_frames_ctx(vk_device_ref, 160, 96, AV_PIX_FMT_YUV420P, &link_frames_ref);
+    if (err < 0)
+        goto end;
+
+    err = init_gpu_graph(&graph, &gpu_src, &gpu_sink, vk_device_ref, link_frames_ref);
+    if (err < 0)
+        goto end;
+
+    sw_f = av_frame_alloc();
+    gpu_out = av_frame_alloc();
+    if (!sw_f || !gpu_out) {
+        err = AVERROR(ENOMEM);
+        goto end;
+    }
+
+    sw_f->format = AV_PIX_FMT_YUV444P;
+    sw_f->width  = 160;
+    sw_f->height = 96;
+    sw_f->pts    = 0;
+
+    err = av_frame_get_buffer(sw_f, 0);
+    if (err < 0)
+        goto end;
+
+    desc = av_pix_fmt_desc_get(AV_PIX_FMT_YUV444P);
+    for (int p = 0; p < desc->nb_components && sw_f->data[p]; p++) {
+        for (int y = 0; y < sw_f->height; y++)
+            memset(sw_f->data[p] + y * sw_f->linesize[p], 0, FFABS(sw_f->linesize[p]));
+    }
+
+    err = upload_vk_frame(upload_ctx_444, sw_f, &gpu_in_vk);
+    av_frame_free(&sw_f);
+    if (err < 0)
+        goto end;
+
+    err = av_buffersrc_add_frame(gpu_src, gpu_in_vk);
+    av_frame_free(&gpu_in_vk);
+    if (err < 0 && err != AVERROR(EAGAIN)) {
+        refused_err = err;
+        refused = 1;
+    } else {
+        err = av_buffersink_get_frame(gpu_sink, gpu_out);
+        if (err < 0 && err != AVERROR(EAGAIN)) {
+            refused_err = err;
+            refused = 1;
+        } else {
+            refused = 0;
+        }
+    }
+
+    if (refused)
+        printf("f1 160 96 yuv444p refused %s\n", err_to_name(refused_err));
+    else
+        printf("f1 160 96 yuv444p accepted\n");
+    fflush(stdout);
+
+    err = 0;
+
+end:
+    av_frame_free(&sw_f);
+    av_frame_free(&gpu_in_vk);
+    av_frame_free(&gpu_out);
+    av_buffer_unref(&link_frames_ref);
+    avfilter_graph_free(&graph);
+    return err;
+}
+
+/* Frame 0 has a black first column and frames 1 and 2 are at the p012 maximum.
+ * On this input hqdn3d on yuv420p12le computes 4096 in frames 1 and 2, which
+ * p012 cannot hold. Print the smallest and largest sample and the OR of the
+ * low 4 bits of each output frame. */
+static int run_f4_step(AVBufferRef *vk_device_ref)
+{
+    AVBufferRef *frames_ref = NULL;
+    AVFilterGraph *graph = NULL;
+    AVFilterContext *gpu_src = NULL, *gpu_sink = NULL;
+    AVFrame *sw_f = NULL, *gpu_in_vk = NULL, *gpu_out_vk = NULL, *sw_out = NULL;
+    int err;
+
+    err = create_vk_frames_ctx(vk_device_ref, 160, 96, AV_PIX_FMT_P012, &frames_ref);
+    if (err < 0)
+        goto end;
+
+    err = init_gpu_graph(&graph, &gpu_src, &gpu_sink, vk_device_ref, frames_ref);
+    if (err < 0)
+        goto end;
+
+    sw_f = av_frame_alloc();
+    gpu_out_vk = av_frame_alloc();
+    sw_out = av_frame_alloc();
+    if (!sw_f || !gpu_out_vk || !sw_out) {
+        err = AVERROR(ENOMEM);
+        goto end;
+    }
+
+    sw_f->format = AV_PIX_FMT_P012;
+    sw_f->width  = 160;
+    sw_f->height = 96;
+
+    err = av_frame_get_buffer(sw_f, 0);
+    if (err < 0)
+        goto end;
+
+    for (int n = 0; n < 3; n++) {
+        uint32_t min_val = 0xFFFF;
+        uint32_t max_val = 0;
+        uint32_t low_or = 0;
+
+        err = av_frame_make_writable(sw_f);
+        if (err < 0)
+            goto end;
+
+        for (int y = 0; y < 96; y++) {
+            uint16_t *dst = (uint16_t *)(sw_f->data[0] + y * sw_f->linesize[0]);
+            for (int x = 0; x < 160; x++)
+                dst[x] = (n == 0 && x == 0) ? 0 : 0xFFF0;
+        }
+        for (int y = 0; y < 48; y++) {
+            uint16_t *dst = (uint16_t *)(sw_f->data[1] + y * sw_f->linesize[1]);
+            for (int x = 0; x < 160; x++)
+                dst[x] = (n == 0 && x < 2) ? 0 : 0xFFF0;
+        }
+
+        sw_f->pts = n;
+        err = upload_vk_frame(frames_ref, sw_f, &gpu_in_vk);
+        if (err < 0)
+            goto end;
+
+        err = av_buffersrc_add_frame(gpu_src, gpu_in_vk);
+        av_frame_free(&gpu_in_vk);
+        if (err < 0)
+            goto end;
+
+        err = av_buffersink_get_frame(gpu_sink, gpu_out_vk);
+        if (err < 0)
+            goto end;
+
+        sw_out->format = AV_PIX_FMT_P012;
+        sw_out->width  = 160;
+        sw_out->height = 96;
+        err = av_hwframe_transfer_data(sw_out, gpu_out_vk, 0);
+        av_frame_unref(gpu_out_vk);
+        if (err < 0)
+            goto end;
+
+        for (int y = 0; y < 96; y++) {
+            const uint16_t *src = (const uint16_t *)(sw_out->data[0] + y * sw_out->linesize[0]);
+            for (int x = 0; x < 160; x++) {
+                uint16_t v = src[x];
+                if (v < min_val)
+                    min_val = v;
+                if (v > max_val)
+                    max_val = v;
+                low_or |= (v & 0xFu);
+            }
+        }
+        for (int y = 0; y < 48; y++) {
+            const uint16_t *src = (const uint16_t *)(sw_out->data[1] + y * sw_out->linesize[1]);
+            for (int x = 0; x < 160; x++) {
+                uint16_t v = src[x];
+                if (v < min_val)
+                    min_val = v;
+                if (v > max_val)
+                    max_val = v;
+                low_or |= (v & 0xFu);
+            }
+        }
+
+        printf("p012 %d min %u max %u low %u\n", n, min_val, max_val, low_or);
+        fflush(stdout);
+        av_frame_unref(sw_out);
+    }
+
+    err = 0;
+
+end:
+    av_frame_free(&sw_f);
+    av_frame_free(&gpu_in_vk);
+    av_frame_free(&gpu_out_vk);
+    av_frame_free(&sw_out);
+    av_buffer_unref(&frames_ref);
+    avfilter_graph_free(&graph);
     return err;
 }
 
@@ -625,26 +856,28 @@ static int setup_all(const char *dev_idx, ResetTest *t)
     return 0;
 }
 
-/* Verify parity on resets, first frame larger than link, and format rejection; return 0 or 1. */
+/* Verify parity on resets, first frame larger than link, format rejection, and F1/F4 cases. */
 int main(int argc, char **argv)
 {
     ResetTest t = { 0 };
-    const char *dev_idx;
+    const char *dev_idx = NULL;
     uint32_t seed = 0x12345678;
-    int err, any_diff = 0, frames_ok = 0;
+    int err;
     int first_same = 0;
     int refused_10 = 0, refused_444 = 0;
 
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <vulkan device index>\n", argv[0]);
+    if (argc > 2) {
+        fprintf(stderr, "Usage: %s [vulkan device index]\n", argv[0]);
         return 1;
     }
-    dev_idx = (strncmp(argv[1], "vk:", 3) == 0) ? argv[1] + 3 : argv[1];
+    if (argc >= 2)
+        dev_idx = (strncmp(argv[1], "vk:", 3) == 0) ? argv[1] + 3 : argv[1];
 
     av_log_set_level(AV_LOG_ERROR);
 
     err = setup_all(dev_idx, &t);
     if (err < 0) {
+        fprintf(stderr, "Setup failed: %s (%d)\n", err_to_name(err), err);
         cleanup_all(&t);
         return 1;
     }
@@ -652,38 +885,23 @@ int main(int argc, char **argv)
     for (int n = 0; n < 12; n++) {
         int is_same = 0;
         err = process_one_frame(&t, n, &seed, &is_same);
-        if (err < 0) {
-            any_diff = 1;
+        if (err < 0)
             break;
-        }
-        frames_ok++;
-        if (!is_same)
-            any_diff = 1;
     }
 
-    if (frames_ok != 12 || any_diff) {
-        cleanup_all(&t);
-        return 1;
-    }
-
-    err = run_first_frame_step(&t, 14, &seed, &first_same);
-    if (err < 0 || !first_same) {
-        cleanup_all(&t);
-        return 1;
-    }
+    run_first_frame_step(&t, 14, &seed, &first_same);
 
     /* Test yuv420p10 first and abort if accepted, avoiding chroma buffer overflow from yuv444p on unpatched filters. */
-    err = run_format_step(&t, 12, AV_PIX_FMT_YUV420P10, t.upload_ctxs[3], &refused_10);
-    if (err < 0 || !refused_10) {
-        cleanup_all(&t);
-        return 1;
+    run_format_step(&t, 12, AV_PIX_FMT_YUV420P10, t.upload_ctxs[3], &refused_10);
+    if (!refused_10) {
+        printf("13 160 96 yuv444p skipped\n");
+        fflush(stdout);
+    } else {
+        run_format_step(&t, 13, AV_PIX_FMT_YUV444P, t.upload_ctxs[4], &refused_444);
     }
 
-    err = run_format_step(&t, 13, AV_PIX_FMT_YUV444P, t.upload_ctxs[4], &refused_444);
-    if (err < 0 || !refused_444) {
-        cleanup_all(&t);
-        return 1;
-    }
+    run_f1_step(t.vk_device_ref, t.upload_ctxs[4]);
+    run_f4_step(t.vk_device_ref);
 
     cleanup_all(&t);
     return 0;

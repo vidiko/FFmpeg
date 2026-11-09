@@ -693,6 +693,7 @@ TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats integral
 
 TESTPROGS-$(CONFIG_DRAWVG_FILTER) += drawvg
+TESTPROGS-$(CONFIG_HQDN3D_VULKAN_FILTER) += hqdn3d_vulkan
 
 TOOLS-$(CONFIG_LIBZMQ) += zmqsend
 

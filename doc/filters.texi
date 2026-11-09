@@ -16052,10 +16052,16 @@ value.
 @section hqdn3d_vulkan
 
 Apply a High Quality 3D Denoiser using Vulkan compute shaders.
-The output is bit-exact to the CPU @ref{hqdn3d} filter. The one exception is
+The output is bit-exact to the CPU @ref{hqdn3d} filter. For semiplanar inputs,
+the reference is the CPU filter on the equivalent planar format. The one exception is
 @samp{p010} and @samp{p012}: where the CPU filter writes a value above the
 format maximum, which these formats cannot store, this filter writes the
 format maximum.
+The filter refuses a frame whose software format differs from the link's.
+The filter also refuses devices lacking required shader or storage features:
+@code{shaderInt16}, @code{storageBuffer16BitAccess}, @code{scalarBlockLayout},
+@code{runtimeDescriptorArray}, @code{shaderStorageImageReadWithoutFormat}, or
+@code{shaderStorageImageWriteWithoutFormat}.
 
 Supported input hardware frame software formats:
 @itemize

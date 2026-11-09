@@ -76,6 +76,9 @@ uint store_sample(uint val, uint s_depth, uint s_msb)
 {
     uint shift = 16u - s_depth;
     uint stored = val >> shift;
+    /* MSB-packed formats cannot hold a code above the depth maximum. */
+    if (s_msb != 0u && shift != 0u)
+        stored = min(stored, (1u << s_depth) - 1u);
     return (s_msb != 0u) ? (stored << shift) : stored;
 }
 
@@ -83,6 +86,7 @@ int lowpass(int prev_val, int cur_val, uint t_offset, uint l_bits)
 {
     int d = (prev_val - cur_val) >> (8 - int(l_bits));
     int center = 256 << int(l_bits);
+    d = clamp(d, -center, center - 1);
     int idx = int(t_offset) + center + d;
     int coef = int(coef_tables[idx]);
     return cur_val + coef;

@@ -71,6 +71,7 @@ uint lowpass(uint prev_val, uint cur_val, uint t_offset, uint l_bits)
 {
     int d = (int(prev_val) - int(cur_val)) >> (8 - int(l_bits));
     int center = 256 << int(l_bits);
+    d = clamp(d, -center, center - 1);
     int idx = int(t_offset) + center + d;
     int coef = int(coef_tables[idx]);
     return uint(int(cur_val) + coef);

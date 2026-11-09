@@ -238,6 +238,9 @@ fate-filter-gradfun: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf gradfun
 FATE_FILTER_VSYNTH_PGMYUV-$(CONFIG_HQDN3D_FILTER) += fate-filter-hqdn3d
 fate-filter-hqdn3d: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf hqdn3d
 
+FATE_FILTER-$(call FILTERFRAMECRC, NULLSRC GEQ FORMAT HQDN3D) += fate-filter-hqdn3d-highdepth
+fate-filter-hqdn3d-highdepth: CMD = framecrc -flags bitexact -lavfi "nullsrc=s=32x32:r=5:d=1,format=yuv420p12le,geq=lum=4095*gt(mod(X*X*7+Y*13+N*29\,17)\,8):cb=2048:cr=2048,hqdn3d=10:10:10:10" -frames:v 5
+
 FATE_FILTER_VSYNTH_PGMYUV-$(CONFIG_INTERLACE_FILTER) += fate-filter-interlace
 fate-filter-interlace: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf interlace
 

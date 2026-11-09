@@ -462,7 +462,7 @@ static int process_one_frame(ResetTest *t, int n, uint32_t *seed, int *is_same)
     return 0;
 }
 
-/* Verify whether an in-stream pixel format change is rejected by the filter. */
+/* Filter must reject in-stream format change with AVERROR(EINVAL); return any other error. */
 static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
                            AVBufferRef *frames_ref, int *refused)
 {
@@ -505,14 +505,21 @@ static int run_format_step(ResetTest *t, int n, enum AVPixelFormat fmt,
 
     err = av_buffersrc_add_frame(t->gpu_src, gpu_in_vk);
     av_frame_free(&gpu_in_vk);
-    if (err < 0 && err != AVERROR(EAGAIN)) {
+    if (err == AVERROR(EINVAL)) {
         *refused = 1;
+    } else if (err < 0 && err != AVERROR(EAGAIN)) {
+        av_frame_free(&out);
+        return err;
     } else {
         err = av_buffersink_get_frame(t->gpu_sink, out);
-        if (err < 0 && err != AVERROR(EAGAIN))
+        if (err == AVERROR(EINVAL)) {
             *refused = 1;
-        else
+        } else if (err < 0 && err != AVERROR(EAGAIN)) {
+            av_frame_free(&out);
+            return err;
+        } else {
             *refused = 0;
+        }
     }
     av_frame_free(&out);
 

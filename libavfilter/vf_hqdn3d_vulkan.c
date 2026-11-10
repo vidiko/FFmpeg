@@ -59,6 +59,10 @@ typedef struct HQDN3DVulkanContext {
 
     int initialized;
     int init_error;
+    /* Last successful submission; the next one waits on it at the compute stage, so the
+     * temporal history it wrote is visible on any queue of the family. */
+    VkSemaphore history_sem;
+    uint64_t history_sem_value;
     FFVkExecPool e;
     AVVulkanDeviceQueueFamily *qf;
 
@@ -737,7 +741,8 @@ static int alloc_output_frame(HQDN3DVulkanContext *s, AVFilterLink *outlink, AVF
     return 0;
 }
 
-/* Submit filtering command buffer to Vulkan queue, wait for execution, or discard on error. */
+/* Record one frame, submit it after the previous submission at the compute stage, and wait
+ * for it on the host; discard the recording on error. */
 static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
 {
     FFVulkanContext *vkctx = &s->vkctx;
@@ -750,6 +755,10 @@ static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
     if (err < 0)
         return err;
 
+    if (s->history_sem)
+        ff_vk_exec_add_dep_wait_sem(vkctx, exec, s->history_sem, s->history_sem_value,
+                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+
     err = setup_views_and_barriers(s, exec, in, out, in_views, out_views);
     if (err < 0)
         goto fail;
@@ -761,6 +770,8 @@ static int exec_filter(HQDN3DVulkanContext *s, AVFrame *in, AVFrame *out)
     err = ff_vk_exec_submit(vkctx, exec);
     if (err < 0)
         return err;
+    s->history_sem       = exec->sem;
+    s->history_sem_value = exec->sem_value;
     ff_vk_exec_wait(vkctx, exec);
 
     return 0;

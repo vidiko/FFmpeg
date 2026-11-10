@@ -530,6 +530,16 @@ FATE_FILTER-$(call FILTERFRAMECRC, FPS TESTSRC2 SETPTS SETTB) += fate-filter-fps
 fate-filter-fps-single-cross-start: CMD = framecrc -lavfi testsrc2=s=16x16:r=25/2:d=0.08,settb=1/25,setpts=PTS-1,fps=1:start_time=0
 fate-filter-fps-single-cross-start: REF = $(SRC_PATH)/tests/ref/fate/filter-fps-single
 
+FATE_LIBAVFILTER-yes += fate-filter-bt2408-hable
+fate-filter-bt2408-hable: libavfilter/tests/bt2408_hable$(EXESUF)
+fate-filter-bt2408-hable: CMD = run_refcmp_metadata libavfilter/tests/bt2408_hable$(EXESUF)
+fate-filter-bt2408-hable: FUZZ = 0.002
+
+FATE_LIBAVFILTER-$(CONFIG_TONEMAP_FILTER) += fate-filter-tonemap-bt2408-hable
+fate-filter-tonemap-bt2408-hable: libavfilter/tests/bt2408_hable$(EXESUF)
+fate-filter-tonemap-bt2408-hable: CMD = run_refcmp_metadata libavfilter/tests/bt2408_hable$(EXESUF) filter
+fate-filter-tonemap-bt2408-hable: FUZZ = 0.002
+
 FATE_LIBAVFILTER-yes += fate-filter-drawutils
 fate-filter-drawutils: libavfilter/tests/drawutils$(EXESUF)
 fate-filter-drawutils: CMD = run libavfilter/tests/drawutils$(EXESUF)

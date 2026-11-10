@@ -35,6 +35,7 @@
 #include "libavutil/pixdesc.h"
 
 #include "avfilter.h"
+#include "bt2408_hable.h"
 #include "colorspace.h"
 #include "filters.h"
 #include "video.h"
@@ -47,6 +48,7 @@ enum TonemapAlgorithm {
     TONEMAP_REINHARD,
     TONEMAP_HABLE,
     TONEMAP_MOBIUS,
+    TONEMAP_BT2408_HABLE,
     TONEMAP_MAX,
 };
 
@@ -60,6 +62,10 @@ typedef struct TonemapContext {
     double peak;
 
     const AVLumaCoefficients *coeffs;
+
+    FFBT2408Hable bt2408;
+    double bt2408_peak;
+    enum AVColorPrimaries bt2408_prim;
 } TonemapContext;
 
 static av_cold int init(AVFilterContext *ctx)
@@ -172,6 +178,23 @@ static void tonemap(TonemapContext *s, AVFrame *out, const AVFrame *in,
     *b_out *= sig / sig_orig;
 }
 
+/* Tone maps the float RGB pixel at (x, y) of in into out with ff_bt2408_hable_pixel(). */
+static void tonemap_bt2408(const FFBT2408Hable *s, AVFrame *out, const AVFrame *in,
+                           const AVPixFmtDescriptor *desc, int x, int y)
+{
+    float rgb[3], res[3];
+
+    for (int c = 0; c < 3; c++) {
+        const AVComponentDescriptor *comp = &desc->comp[c];
+        rgb[c] = *(const float *)(in->data[comp->plane] + x * comp->step + y * in->linesize[comp->plane]);
+    }
+    ff_bt2408_hable_pixel(s, rgb, res);
+    for (int c = 0; c < 3; c++) {
+        const AVComponentDescriptor *comp = &desc->comp[c];
+        *(float *)(out->data[comp->plane] + x * comp->step + y * out->linesize[comp->plane]) = res[c];
+    }
+}
+
 typedef struct ThreadData {
     AVFrame *in, *out;
     const AVPixFmtDescriptor *desc;
@@ -189,10 +212,39 @@ static int tonemap_slice(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs
     const int slice_end = ff_slice_pos(in->height, jobnr + 1, nb_jobs);
     double peak = td->peak;
 
-    for (int y = slice_start; y < slice_end; y++)
-        for (int x = 0; x < out->width; x++)
-            tonemap(s, out, in, desc, x, y, peak);
+    if (s->tonemap == TONEMAP_BT2408_HABLE) {
+        for (int y = slice_start; y < slice_end; y++)
+            for (int x = 0; x < out->width; x++)
+                tonemap_bt2408(&s->bt2408, out, in, desc, x, y);
+    } else {
+        for (int y = slice_start; y < slice_end; y++)
+            for (int x = 0; x < out->width; x++)
+                tonemap(s, out, in, desc, x, y, peak);
+    }
 
+    return 0;
+}
+
+/* The output is linear SDR BT.709: color-dependent side data of the input no longer applies. */
+static int setup_bt2408(AVFilterContext *ctx, AVFrame *out, const AVFrame *in, double peak)
+{
+    TonemapContext *s = ctx->priv;
+
+    if (peak != s->bt2408_peak || in->color_primaries != s->bt2408_prim) {
+        int ret = ff_bt2408_hable_init(&s->bt2408, in->color_primaries, peak * REFERENCE_WHITE);
+        if (ret < 0) {
+            const char *name = av_color_primaries_name(in->color_primaries);
+            av_log(ctx, AV_LOG_ERROR, "Unsupported primaries '%s' or peak %f\n",
+                   name ? name : "unknown", peak);
+            return ret;
+        }
+        s->bt2408_peak = peak;
+        s->bt2408_prim = in->color_primaries;
+    }
+    out->color_primaries = AVCOL_PRI_BT709;
+    out->color_trc = AVCOL_TRC_LINEAR;
+    av_frame_side_data_remove_by_props(&out->side_data, &out->nb_side_data,
+                                       AV_SIDE_DATA_PROP_COLOR_DEPENDENT);
     return 0;
 }
 
@@ -239,9 +291,19 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
         av_log(ctx, AV_LOG_DEBUG, "Computed signal peak: %f\n", peak);
     }
 
+    if (s->tonemap == TONEMAP_BT2408_HABLE) {
+        ret = setup_bt2408(ctx, out, in, peak);
+        if (ret < 0) {
+            av_frame_free(&in);
+            av_frame_free(&out);
+            return ret;
+        }
+    }
+
     /* load original color space even if pixel format is RGB to compute overbrights */
     s->coeffs = av_csp_luma_coeffs_from_avcsp(in->colorspace);
-    if (s->desat > 0 && (in->colorspace == AVCOL_SPC_UNSPECIFIED || !s->coeffs)) {
+    if (s->tonemap != TONEMAP_BT2408_HABLE && s->desat > 0 &&
+        (in->colorspace == AVCOL_SPC_UNSPECIFIED || !s->coeffs)) {
         if (in->colorspace == AVCOL_SPC_UNSPECIFIED)
             av_log(ctx, AV_LOG_WARNING, "Missing color space information, ");
         else if (!s->coeffs)
@@ -275,7 +337,8 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
 
     av_frame_free(&in);
 
-    ff_update_hdr_metadata(out, peak);
+    if (s->tonemap != TONEMAP_BT2408_HABLE)
+        ff_update_hdr_metadata(out, peak);
 
     return ff_filter_frame(outlink, out);
 }
@@ -291,6 +354,7 @@ static const AVOption tonemap_options[] = {
     {     "reinhard", 0, 0, AV_OPT_TYPE_CONST, {.i64 = TONEMAP_REINHARD},          0, 0, FLAGS, .unit = "tonemap" },
     {     "hable",    0, 0, AV_OPT_TYPE_CONST, {.i64 = TONEMAP_HABLE},             0, 0, FLAGS, .unit = "tonemap" },
     {     "mobius",   0, 0, AV_OPT_TYPE_CONST, {.i64 = TONEMAP_MOBIUS},            0, 0, FLAGS, .unit = "tonemap" },
+    {     "bt2408_hable", 0, 0, AV_OPT_TYPE_CONST, {.i64 = TONEMAP_BT2408_HABLE},  0, 0, FLAGS, .unit = "tonemap" },
     { "param",        "tonemap parameter", OFFSET(param), AV_OPT_TYPE_DOUBLE, {.dbl = NAN}, DBL_MIN, DBL_MAX, FLAGS },
     { "desat",        "desaturation strength", OFFSET(desat), AV_OPT_TYPE_DOUBLE, {.dbl = 2}, 0, DBL_MAX, FLAGS },
     { "peak",         "signal peak override", OFFSET(peak), AV_OPT_TYPE_DOUBLE, {.dbl = 0}, 0, DBL_MAX, FLAGS },

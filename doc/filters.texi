@@ -24959,6 +24959,13 @@ data should be linearized beforehand (and possibly correctly tagged).
 ffmpeg -i INPUT -vf zscale=transfer=linear,tonemap=clip,zscale=transfer=bt709,format=yuv420p OUTPUT
 @end example
 
+Tone map an HDR10 input mastered for a peak of 4000 cd/m^2 to SDR BT.709. The
+linearizing @code{zscale} drops the content light level and mastering display
+side data, so the peak is given with @option{peak}, in units of 100 cd/m^2:
+@example
+ffmpeg -i INPUT -vf zscale=transfer=linear,format=gbrpf32le,tonemap=bt2408_hable:peak=40,zscale=transfer=bt709:matrix=bt709:range=tv,format=yuv420p OUTPUT
+@end example
+
 @subsection Options
 The filter accepts the following options.
 
@@ -24994,6 +25001,23 @@ important than color and brightness accuracy.
 Smoothly map out-of-range values, while retaining contrast and colors for
 in-range material as much as possible. Use it when color accuracy is more
 important than detail preservation.
+
+@item bt2408_hable
+Map HDR input to SDR BT.709 the way libplacebo does with its @code{hable}
+tone mapping and clipping gamut mapping: the Hable curve is applied to the
+intensity of IPT, with the SDR reference white at 203 cd/m^2 (ITU-R BT.2408),
+and chroma is reduced as the curve compresses intensity. The input must be
+tagged with primaries that have a D65 white point, such as BT.2020, with
+1.0 = 100 cd/m^2 as @ref{zscale} produces with its default @option{npl}.
+Frames with other primaries, or with no primaries tag, are refused; for
+untagged input known to be BT.2020, insert
+@code{setparams=color_primaries=bt2020} before this filter.
+The output is in BT.709 primaries and tagged as such, still in
+linear light, so that a following @code{zscale=transfer=bt709} encodes it for
+a BT.1886 display with a 1000:1 contrast. Color-dependent side data, such
+as the content light level, mastering display metadata and ICC profile, is
+dropped from the output. The options @option{param} and @option{desat} are
+ignored.
 @end table
 
 Default is none.

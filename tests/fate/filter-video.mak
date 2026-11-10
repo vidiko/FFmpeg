@@ -535,6 +535,11 @@ fate-filter-bt2408-hable: libavfilter/tests/bt2408_hable$(EXESUF)
 fate-filter-bt2408-hable: CMD = run_refcmp_metadata libavfilter/tests/bt2408_hable$(EXESUF)
 fate-filter-bt2408-hable: FUZZ = 0.002
 
+FATE_LIBAVFILTER-$(CONFIG_TONEMAP_FILTER) += fate-filter-tonemap-bt2408-hable
+fate-filter-tonemap-bt2408-hable: libavfilter/tests/bt2408_hable$(EXESUF)
+fate-filter-tonemap-bt2408-hable: CMD = run_refcmp_metadata libavfilter/tests/bt2408_hable$(EXESUF) filter
+fate-filter-tonemap-bt2408-hable: FUZZ = 0.002
+
 FATE_LIBAVFILTER-yes += fate-filter-drawutils
 fate-filter-drawutils: libavfilter/tests/drawutils$(EXESUF)
 fate-filter-drawutils: CMD = run libavfilter/tests/drawutils$(EXESUF)

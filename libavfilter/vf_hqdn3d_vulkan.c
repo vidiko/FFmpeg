@@ -640,13 +640,13 @@ static int check_format_and_size(AVFilterContext *ctx, AVFrame *in)
             free_buffers(ctx);
             err = init_buffers(ctx, in->width, in->height);
             if (err < 0)
-                return err;
+                return s->init_error = err;
             err = calc_coefs(ctx);
             if (err < 0)
-                return err;
+                return s->init_error = err;
             err = create_out_frames_ctx(ctx, in);
             if (err < 0)
-                return err;
+                return s->init_error = err;
             s->first_frame = 1;
         } else if (in->width  != ctx->outputs[0]->w ||
                    in->height != ctx->outputs[0]->h) {
@@ -779,6 +779,12 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
     AVFrame *out;
     int err;
 
+    /* A failed initialization or resize is terminal. */
+    if (s->init_error < 0) {
+        av_frame_free(&in);
+        return s->init_error;
+    }
+
     err = check_format_and_size(ctx, in);
     if (err < 0) {
         av_frame_free(&in);
@@ -786,11 +792,6 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
     }
 
     if (!s->initialized) {
-        /* A failed init is terminal: a retry would overwrite live allocations. */
-        if (s->init_error < 0) {
-            av_frame_free(&in);
-            return s->init_error;
-        }
         err = init_filter(ctx, in);
         if (err < 0) {
             s->init_error = err;
@@ -817,12 +818,16 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
     return ff_filter_frame(outlink, out);
 }
 
-/* Apply runtime configuration command and recompute coefficient LUTs if filter is initialized. */
+/* Apply a runtime command and recompute the lookup tables if the filter is initialized;
+ * return the stored error after a failed initialization or resize. */
 static int process_command(AVFilterContext *ctx, const char *cmd, const char *args,
                            char *res, int res_len, int flags)
 {
     HQDN3DVulkanContext *s = ctx->priv;
     int ret;
+
+    if (s->init_error < 0)
+        return s->init_error;
 
     ret = ff_filter_process_command(ctx, cmd, args, res, res_len, flags);
     if (ret < 0)

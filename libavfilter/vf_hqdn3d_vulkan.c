@@ -58,6 +58,7 @@ typedef struct HQDN3DVulkanContext {
     FFVulkanContext vkctx;
 
     int initialized;
+    int init_error;
     FFVkExecPool e;
     AVVulkanDeviceQueueFamily *qf;
 
@@ -785,8 +786,14 @@ static int hqdn3d_vulkan_filter_frame(AVFilterLink *link, AVFrame *in)
     }
 
     if (!s->initialized) {
+        /* A failed init is terminal: a retry would overwrite live allocations. */
+        if (s->init_error < 0) {
+            av_frame_free(&in);
+            return s->init_error;
+        }
         err = init_filter(ctx, in);
         if (err < 0) {
+            s->init_error = err;
             av_frame_free(&in);
             return err;
         }

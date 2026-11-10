@@ -79,7 +79,9 @@ uint store_sample(uint val, uint s_depth, uint s_msb)
     /* MSB-packed formats cannot hold a code above the depth maximum. */
     if (s_msb != 0u && shift != 0u)
         stored = min(stored, (1u << s_depth) - 1u);
-    return (s_msb != 0u) ? (stored << shift) : stored;
+    uint packed = (s_msb != 0u) ? (stored << shift) : stored;
+    /* Narrow to the container width as the CPU filter does. */
+    return packed & ((s_depth == 8u) ? 0xFFu : 0xFFFFu);
 }
 
 int lowpass(int prev_val, int cur_val, uint t_offset, uint l_bits)

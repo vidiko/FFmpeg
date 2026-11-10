@@ -51,7 +51,9 @@ av_always_inline
 static uint32_t lowpass(int prev, int cur, int16_t *coef, int depth)
 {
     int d = (prev - cur) >> (8 - LUT_BITS);
-    return cur + coef[d];
+    /* At 16 bits, coef[d] lies between 0 and d, so the result stays
+     * between cur and prev. */
+    return depth == 16 ? cur + coef[d] : av_clip_uint16(cur + coef[d]);
 }
 
 av_always_inline

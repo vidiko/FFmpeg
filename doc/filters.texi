@@ -16058,10 +16058,13 @@ the reference is the CPU filter on the equivalent planar format. The one excepti
 format maximum, which these formats cannot store, this filter writes the
 format maximum.
 The filter refuses a frame whose software format differs from the link's.
-The filter also refuses devices lacking required shader or storage features:
-@code{shaderInt16}, @code{storageBuffer16BitAccess}, @code{scalarBlockLayout},
-@code{runtimeDescriptorArray}, @code{shaderStorageImageReadWithoutFormat}, or
-@code{shaderStorageImageWriteWithoutFormat}.
+The filter also refuses a device on which one of these shader or storage
+features is not enabled: @code{shaderInt16}, @code{storageBuffer16BitAccess},
+@code{scalarBlockLayout}, @code{runtimeDescriptorArray},
+@code{shaderStorageImageReadWithoutFormat}, or
+@code{shaderStorageImageWriteWithoutFormat}. A device that FFmpeg creates
+enables each of them that the hardware supports; a device the application
+creates must enable them itself, as support by the physical device is not enough.
 
 Supported input hardware frame software formats:
 @itemize

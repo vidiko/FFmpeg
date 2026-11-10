@@ -99,6 +99,20 @@ run(){
     $target_exec $target_path/"$@"
 }
 
+# Preserve the program's exit status before normalizing floating-point output.
+run_refcmp_metadata(){
+    cmp_raw="${outdir}/${test}.raw"
+    cleanfiles="$cleanfiles $cmp_raw"
+    run "$@" >"$cmp_raw"
+    cmp_status=$?
+    if [ "$cmp_status" -ne 0 ]; then
+        cat "$cmp_raw"
+        return "$cmp_status"
+    fi
+    tr -d '\r' <"$cmp_raw" |
+        awk -v ref="$ref" -v fuzz="$fuzz" -f "${base}/refcmp-metadata.awk" -
+}
+
 runecho(){
     test "${V:-0}" -gt 0 && echo "$target_exec" $target_path/"$@" >&3
     $target_exec $target_path/"$@" >&3

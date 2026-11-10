@@ -689,7 +689,7 @@ SKIPHEADERS-$(CONFIG_VULKAN)                 += vulkan_filter.h
 SKIPHEADERS-$(CONFIG_SCALE_CUDA_FILTER)      += vf_scale_cuda.h
 
 TOOLS     = graph2dot
-TESTPROGS = drawutils filtfmts formats integral
+TESTPROGS = bt2408_hable drawutils filtfmts formats integral
 
 TESTPROGS-$(CONFIG_DRAWVG_FILTER) += drawvg
 

@@ -754,6 +754,63 @@ static int filter_slice(AVFilterContext *ctx, void *data, int job_nr, int n_jobs
     return 0;
 }
 
+/*
+ * Linear light in the same primaries keeps the light levels of its source, so
+ * a tone mapper further down can still read the peak from them.
+ */
+static void remove_color_dependent_keep_light(AVFrame *out)
+{
+    for (int i = out->nb_side_data - 1; i >= 0; i--) {
+        const AVSideDataDescriptor *desc;
+        enum AVFrameSideDataType type;
+
+        if (i >= out->nb_side_data)
+            continue;
+        type = out->side_data[i]->type;
+        desc = av_frame_side_data_desc(type);
+        if (type == AV_FRAME_DATA_CONTENT_LIGHT_LEVEL ||
+            type == AV_FRAME_DATA_MASTERING_DISPLAY_METADATA)
+            continue;
+        if (desc && desc->props & AV_SIDE_DATA_PROP_COLOR_DEPENDENT)
+            av_frame_side_data_remove(&out->side_data, &out->nb_side_data, type);
+    }
+}
+
+/* Whether zimg linearises the tagged signal at the scale tonemap assumes,
+ * into a float format that keeps the values above 1.0. */
+static int keeps_light_levels(const ZScaleContext *s, const AVFrame *out, const AVFrame *in)
+{
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(out->format);
+
+    if (!desc || !(desc->flags & AV_PIX_FMT_FLAG_FLOAT))
+        return 0;
+    if (out->color_trc == in->color_trc || out->color_trc != AVCOL_TRC_LINEAR)
+        return 0;
+    if (out->color_primaries != in->color_primaries ||
+        s->src_format.color_primaries != s->dst_format.color_primaries ||
+        s->src_format.transfer_characteristics != convert_trc(in->color_trc))
+        return 0;
+    if (s->src_format.color_family != ZIMG_COLOR_RGB &&
+        (s->src_format.matrix_coefficients != convert_matrix(in->colorspace) ||
+         s->src_format.pixel_range != convert_range(in->color_range)))
+        return 0;
+    return isnan(s->nominal_peak_luminance) || s->nominal_peak_luminance == 100.0;
+}
+
+/* Drops the side data the conversion invalidates, keeping the light levels when linearising. */
+static void prune_side_data(const ZScaleContext *s, AVFrame *out, const AVFrame *in)
+{
+    int changed = 0;
+
+    if (out->width != in->width || out->height != in->height)
+        changed |= AV_SIDE_DATA_PROP_SIZE_DEPENDENT;
+    if (keeps_light_levels(s, out, in))
+        remove_color_dependent_keep_light(out);
+    else if (out->color_trc != in->color_trc || out->color_primaries != in->color_primaries)
+        changed |= AV_SIDE_DATA_PROP_COLOR_DEPENDENT;
+    av_frame_side_data_remove_by_props(&out->side_data, &out->nb_side_data, changed);
+}
+
 static int filter_frame(AVFilterLink *link, AVFrame *in)
 {
     AVFilterContext *ctx = link->dst;
@@ -762,7 +819,7 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(link->format);
     const AVPixFmtDescriptor *odesc = av_pix_fmt_desc_get(outlink->format);
     char buf[32];
-    int ret = 0, changed = 0;
+    int ret = 0;
     AVFrame *out = NULL;
     ThreadData td;
 
@@ -841,11 +898,7 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
                   (int64_t)in->sample_aspect_ratio.den * outlink->w * link->h,
                   INT_MAX);
 
-        if (out->width != in->width || out->height != in->height)
-            changed |= AV_SIDE_DATA_PROP_SIZE_DEPENDENT;
-        if (out->color_trc != in->color_trc || out->color_primaries != in->color_primaries)
-            changed |= AV_SIDE_DATA_PROP_COLOR_DEPENDENT;
-        av_frame_side_data_remove_by_props(&out->side_data, &out->nb_side_data, changed);
+        prune_side_data(s, out, in);
 
         td.in = in;
         td.out = out;

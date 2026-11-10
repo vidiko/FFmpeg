@@ -27713,6 +27713,14 @@ Possible values are:
 
 Default is same as input.
 
+When @option{transfer} is @code{linear} and the input is not, the content
+light level and mastering display metadata are kept only if the primaries do
+not change, @option{primariesin} and @option{transferin} are unset or match
+the frame's tags (for non-RGB input, @option{matrixin} and @option{rangein} too),
+@option{npl} is unset or 100, and the output format is floating-point.
+Otherwise they are removed. For these checks, an unspecified input range is
+treated as limited.
+
 @item matrix, m
 Set the colorspace matrix.
 

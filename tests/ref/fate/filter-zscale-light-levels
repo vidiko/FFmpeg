@@ -1,20 +1,20 @@
-zscale=t=linear: light level kept, mastering display kept, gain map dropped value 100
-zscale=t=linear:p=bt709: light level dropped, mastering display dropped, gain map dropped value 100
-zscale=t=linear:p=2020: light level kept, mastering display kept, gain map dropped value 100
-zscale=t=linear:primariesin=bt709: light level dropped, mastering display dropped, gain map dropped value 100
-zscale=t=linear:primariesin=2020: light level kept, mastering display kept, gain map dropped value 100
-zscale=t=linear:primariesin=bt709:p=bt709: light level dropped, mastering display dropped, gain map dropped value 100
-zscale=t=linear:tin=bt709: light level dropped, mastering display dropped, gain map dropped value 1
-zscale=t=linear:tin=smpte2084: light level kept, mastering display kept, gain map dropped value 100
-zscale=t=linear:npl=100: light level kept, mastering display kept, gain map dropped value 100
-zscale=t=linear:npl=1000: light level dropped, mastering display dropped, gain map dropped value 10
-zscale=t=linear:npl=1000,tonemap=linear:desat=0: light level dropped, mastering display dropped, gain map dropped value 1
-zscale=t=linear,format=gbrp10: light level dropped, mastering display dropped, gain map dropped
-zscale=t=linear,format=gbrpf16: light level kept, mastering display kept, gain map dropped
-zscale=t=bt709: light level dropped, mastering display dropped, gain map dropped
-zscale=w=8:h=4: light level kept, mastering display kept, gain map kept
-zscale=w=8:h=4:t=linear: light level kept, mastering display kept, gain map dropped value 100
-zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear,format=gbrpf32: light level kept, mastering display kept, gain map dropped value 100
-zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:min=2020_ncl:rin=limited,format=gbrpf32: light level kept, mastering display kept, gain map dropped value 100
-zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:min=709,format=gbrpf32: light level dropped, mastering display dropped, gain map dropped value 100
-zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:rin=full,format=gbrpf32: light level dropped, mastering display dropped, gain map dropped value 46
+zscale=t=linear: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=t=linear:p=bt709: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 100
+zscale=t=linear:p=2020: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=t=linear:primariesin=bt709: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 100
+zscale=t=linear:primariesin=2020: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=t=linear:primariesin=bt709:p=bt709: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 100
+zscale=t=linear:tin=bt709: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 1
+zscale=t=linear:tin=smpte2084: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=t=linear:npl=100: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=t=linear:npl=1000: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 10
+zscale=t=linear:npl=1000,tonemap=linear:desat=0: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 1
+zscale=t=linear,format=gbrp10: light level dropped, mastering display dropped, gain map dropped, regions of interest kept
+zscale=t=linear,format=gbrpf16: light level kept, mastering display kept, gain map dropped, regions of interest kept
+zscale=t=bt709: light level dropped, mastering display dropped, gain map dropped, regions of interest kept
+zscale=w=8:h=4: light level kept, mastering display kept, gain map kept, regions of interest dropped
+zscale=w=8:h=4:t=linear: light level kept, mastering display kept, gain map dropped, regions of interest dropped value 100
+zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear,format=gbrpf32: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:min=2020_ncl:rin=limited,format=gbrpf32: light level kept, mastering display kept, gain map dropped, regions of interest kept value 100
+zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:min=709,format=gbrpf32: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 100
+zscale=m=2020_ncl:r=limited,format=yuv444p16,zscale=t=linear:rin=full,format=gbrpf32: light level dropped, mastering display dropped, gain map dropped, regions of interest kept value 46

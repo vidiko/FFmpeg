@@ -16,7 +16,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/* Which colour-dependent side data zscale keeps on a transfer change. */
+/* Which side data zscale keeps on a transfer change or a resize. */
 #include <stdio.h>
 
 #include "libavutil/frame.h"
@@ -72,15 +72,26 @@ static int run_filter(AVFrame *in, AVFrame *out, const char *chain)
     return ret;
 }
 
-/* Attaches light levels, a mastering display and gain map parameters. */
+/* Attaches light levels, a mastering display, gain map parameters and a
+ * region of interest covering the frame. */
 static int add_side_data(AVFrame *f)
 {
     AVContentLightMetadata *cll = av_content_light_metadata_create_side_data(f);
     AVMasteringDisplayMetadata *md = av_mastering_display_metadata_create_side_data(f);
+    AVFrameSideData *sd = av_frame_new_side_data(f, AV_FRAME_DATA_REGIONS_OF_INTEREST,
+                                                 sizeof(AVRegionOfInterest));
+    AVRegionOfInterest *roi;
 
-    if (!cll || !md ||
+    if (!cll || !md || !sd ||
         !av_gain_map_params_create_side_data(&f->side_data, &f->nb_side_data))
         return AVERROR(ENOMEM);
+    roi = (AVRegionOfInterest *)sd->data;
+    roi->self_size = sizeof(AVRegionOfInterest);
+    roi->top = 0;
+    roi->bottom = f->height;
+    roi->left = 0;
+    roi->right = f->width;
+    roi->qoffset = av_make_q(-1, 10);
     cll->MaxCLL = 10000;
     md->has_luminance = 1;
     md->max_luminance = av_make_q(10000, 1);
@@ -88,7 +99,7 @@ static int add_side_data(AVFrame *f)
     return 0;
 }
 
-/* A PQ BT.2020 frame with light levels and gain map parameters. */
+/* A PQ BT.2020 frame carrying the side data of add_side_data(). */
 static AVFrame *make_frame(void)
 {
     AVFrame *f = av_frame_alloc();
@@ -112,7 +123,7 @@ static AVFrame *make_frame(void)
     return f;
 }
 
-/* Tests retention of light level metadata across filter chains. */
+/* Tests which side data survive each filter chain. */
 int main(void)
 {
     static const char *const chains[] = {
@@ -148,10 +159,11 @@ int main(void)
         if (ret < 0) {
             printf("%s: failed\n", chains[i]);
         } else {
-            printf("%s: light level %s, mastering display %s, gain map %s",
+            printf("%s: light level %s, mastering display %s, gain map %s, regions of interest %s",
                    chains[i], HAS(out, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL),
                    HAS(out, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA),
-                   HAS(out, AV_FRAME_DATA_GAIN_MAP_PARAMS));
+                   HAS(out, AV_FRAME_DATA_GAIN_MAP_PARAMS),
+                   HAS(out, AV_FRAME_DATA_REGIONS_OF_INTEREST));
             /* zimg builds differ in the low digits of a sample; whole numbers
              * still tell the linear scales apart. */
             if (out->format == AV_PIX_FMT_GBRPF32 &&

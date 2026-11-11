@@ -139,6 +139,29 @@ static inline int ff_fmt_equal(const SwsFormat *fmt1, const SwsFormat *fmt2)
            ff_color_equal(&fmt1->color, &fmt2->color);
 }
 
+/**
+ * A repack/rescale between two YUV layouts of the same colour applies no
+ * matrix, so a colour space swscale cannot convert may pass through.
+ */
+static inline int ff_fmt_same_color(const SwsFormat *a, const SwsFormat *b)
+{
+    const AVPixFmtDescriptor *desc_a = a->desc ? a->desc : av_pix_fmt_desc_get(a->format);
+    const AVPixFmtDescriptor *desc_b = b->desc ? b->desc : av_pix_fmt_desc_get(b->format);
+
+    if (!desc_a || !desc_b)
+        return 0;
+
+    if (desc_a->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_PAL))
+        return 0;
+    if (desc_b->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_PAL))
+        return 0;
+
+    return a->csp   == b->csp   &&
+           a->range == b->range &&
+           a->loc   == b->loc   &&
+           ff_color_equal(&a->color, &b->color);
+}
+
 static inline int ff_fmt_align(enum AVPixelFormat fmt)
 {
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(fmt);

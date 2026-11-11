@@ -1541,6 +1541,22 @@ static int bottom_field_fits(const AVFrame *frame, const SwsFormat *field)
     return 2 * AV_CEIL_RSHIFT(field->height, vsub) <= AV_CEIL_RSHIFT(frame->height, vsub);
 }
 
+static int test_frame_fmt(const SwsBackend backends, const SwsFormat *src,
+                          const SwsFormat *dst, int *src_ok, int *dst_ok)
+{
+    *src_ok = ff_test_fmt(backends, src, 0);
+    *dst_ok = ff_test_fmt(backends, dst, 1);
+    if ((!*src_ok || !*dst_ok) && ff_fmt_same_color(src, dst)) {
+        SwsFormat s_test = *src;
+        SwsFormat d_test = *dst;
+        s_test.csp = AVCOL_SPC_BT2020_NCL;
+        d_test.csp = AVCOL_SPC_BT2020_NCL;
+        *src_ok = ff_test_fmt(backends, &s_test, 0);
+        *dst_ok = ff_test_fmt(backends, &d_test, 1);
+    }
+    return (*src_ok && *dst_ok) || ff_fmt_equal(src, dst);
+}
+
 int sws_frame_setup(SwsContext *ctx, const AVFrame *dst, const AVFrame *src)
 {
     SwsInternal *s = sws_internal(ctx);
@@ -1619,9 +1635,7 @@ int sws_frame_setup(SwsContext *ctx, const AVFrame *dst, const AVFrame *src)
             goto fail;
         }
 
-        src_ok = ff_test_fmt(backends, &src_fmt, 0);
-        dst_ok = ff_test_fmt(backends, &dst_fmt, 1);
-        if ((!src_ok || !dst_ok) && !ff_fmt_equal(&src_fmt, &dst_fmt)) {
+        if (!test_frame_fmt(backends, &src_fmt, &dst_fmt, &src_ok, &dst_ok)) {
             err_msg = src_ok ? "Unsupported output" : "Unsupported input";
             ret = AVERROR(ENOTSUP);
             goto fail;

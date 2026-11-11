@@ -59,6 +59,17 @@ layout (push_constant, scalar) uniform PushConsts {
     uint spatial_enabled;
 };
 
+/* Keep image indices constant: dynamic storage-image indexing is not required. */
+uint load_planar(ivec2 c)
+{
+    if (plane_idx == 0u)
+        return imageLoad(in_img[0], c).x;
+    else if (plane_idx == 1u)
+        return imageLoad(in_img[1], c).x;
+    else
+        return imageLoad(in_img[2], c).x;
+}
+
 uint load_sample(uint raw, uint s_depth, uint s_msb)
 {
     uint shift = 16u - s_depth;
@@ -80,12 +91,12 @@ uint lowpass(uint prev_val, uint cur_val, uint t_offset, uint l_bits)
 void process_planar_row(uint y)
 {
     uint h_row_start = h_offset_u + y * width;
-    uint raw0 = imageLoad(in_img[plane_idx], ivec2(0, int(y))).x;
+    uint raw0 = load_planar(ivec2(0, int(y)));
     uint pixel_ant = load_sample(raw0, depth, is_msb);
 
     if (y == 0u) {
         for (uint x = 0u; x < width; x++) {
-            uint raw = imageLoad(in_img[plane_idx], ivec2(int(x), 0)).x;
+            uint raw = load_planar(ivec2(int(x), 0));
             uint cur = load_sample(raw, depth, is_msb);
             pixel_ant = lowpass(pixel_ant, cur, spatial_offset, lut_bits);
             h_data[h_row_start + x] = uint16_t(pixel_ant);
@@ -93,7 +104,7 @@ void process_planar_row(uint y)
     } else {
         h_data[h_row_start + 0u] = uint16_t(pixel_ant);
         for (uint x = 0u; x + 1u < width; x++) {
-            uint raw = imageLoad(in_img[plane_idx], ivec2(int(x + 1u), int(y))).x;
+            uint raw = load_planar(ivec2(int(x + 1u), int(y)));
             uint cur = load_sample(raw, depth, is_msb);
             pixel_ant = lowpass(pixel_ant, cur, spatial_offset, lut_bits);
             h_data[h_row_start + x + 1u] = uint16_t(pixel_ant);

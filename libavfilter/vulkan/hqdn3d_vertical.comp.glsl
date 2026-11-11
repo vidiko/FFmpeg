@@ -64,6 +64,28 @@ layout (push_constant, scalar) uniform PushConsts {
     uint spatial_enabled;
 };
 
+/* Keep image indices constant: dynamic storage-image indexing is not required. */
+uint load_planar(ivec2 c)
+{
+    if (plane_idx == 0u)
+        return imageLoad(in_img[0], c).x;
+    else if (plane_idx == 1u)
+        return imageLoad(in_img[1], c).x;
+    else
+        return imageLoad(in_img[2], c).x;
+}
+
+void store_planar(ivec2 c, uint v)
+{
+    uvec4 texel = uvec4(v, 0, 0, 0);
+    if (plane_idx == 0u)
+        imageStore(out_img[0], c, texel);
+    else if (plane_idx == 1u)
+        imageStore(out_img[1], c, texel);
+    else
+        imageStore(out_img[2], c, texel);
+}
+
 uint load_sample(uint raw, uint s_depth, uint s_msb)
 {
     uint shift = 16u - s_depth;
@@ -97,14 +119,14 @@ int lowpass(int prev_val, int cur_val, uint t_offset, uint l_bits)
 void process_planar_temporal(uint x)
 {
     for (uint y = 0u; y < height; y++) {
-        uint raw = imageLoad(in_img[plane_idx], ivec2(int(x), int(y))).x;
+        uint raw = load_planar(ivec2(int(x), int(y)));
         int cur = int(load_sample(raw, depth, is_msb));
         uint fa_idx = frame_ant_offset_u + y * width + x;
         int prev_ant = (first_frame != 0u) ? cur : int(frame_ant_data[fa_idx]);
         int tmp = lowpass(prev_ant, cur, temporal_offset, lut_bits);
         frame_ant_data[fa_idx] = uint16_t(tmp);
         uint out_val = store_sample(uint(tmp), depth, is_msb);
-        imageStore(out_img[plane_idx], ivec2(int(x), int(y)), uvec4(out_val, 0, 0, 0));
+        store_planar(ivec2(int(x), int(y)), out_val);
     }
 }
 
@@ -141,7 +163,7 @@ void process_planar_spatial(uint x)
         uint fa_idx = frame_ant_offset_u + y * width + x;
         int prev_ant;
         if (first_frame != 0u) {
-            uint raw = imageLoad(in_img[plane_idx], ivec2(int(x), int(y))).x;
+            uint raw = load_planar(ivec2(int(x), int(y)));
             prev_ant = int(load_sample(raw, depth, is_msb));
         } else {
             prev_ant = int(frame_ant_data[fa_idx]);
@@ -149,7 +171,7 @@ void process_planar_spatial(uint x)
         int temp_tmp = lowpass(prev_ant, spat_tmp, temporal_offset, lut_bits);
         frame_ant_data[fa_idx] = uint16_t(temp_tmp);
         uint out_val = store_sample(uint(temp_tmp), depth, is_msb);
-        imageStore(out_img[plane_idx], ivec2(int(x), int(y)), uvec4(out_val, 0, 0, 0));
+        store_planar(ivec2(int(x), int(y)), out_val);
     }
 }
 

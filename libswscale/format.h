@@ -140,8 +140,11 @@ static inline int ff_fmt_equal(const SwsFormat *fmt1, const SwsFormat *fmt2)
 }
 
 /**
- * A repack/rescale between two YUV layouts of the same colour applies no
- * matrix, so a colour space swscale cannot convert may pass through.
+ * A repack or rescale between two YUV layouts of the same colour applies no
+ * colour matrix, so a colour space swscale cannot convert may pass through.
+ * Both formats need three colour components and the same colour space,
+ * range, primaries and transfer. The chroma location may differ, since
+ * chroma siting is resampled without a colour matrix.
  */
 static inline int ff_fmt_same_color(const SwsFormat *a, const SwsFormat *b)
 {
@@ -155,10 +158,11 @@ static inline int ff_fmt_same_color(const SwsFormat *a, const SwsFormat *b)
         return 0;
     if (desc_b->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_PAL))
         return 0;
+    if (desc_a->nb_components < 3 || desc_b->nb_components < 3)
+        return 0;
 
     return a->csp   == b->csp   &&
            a->range == b->range &&
-           a->loc   == b->loc   &&
            ff_color_equal(&a->color, &b->color);
 }
 

@@ -636,7 +636,7 @@ fate-filter-scale-bt2020c-tags: CMD = probe -print_format compact -show_entries 
 
 FATE_SCALE_REFUSE = fate-filter-scale-ipt-c2-refuse-rgb fate-filter-scale-ipt-c2-refuse-range fate-filter-scale-ipt-c2-refuse-matrix fate-filter-scale-ipt-c2-refuse-gamma fate-filter-scale-bt2020c-refuse-gamma
 FATE_SCALE_REFUSE += fate-filter-scale-ipt-c2-refuse-primaries fate-filter-scale-ipt-c2-refuse-transfer fate-filter-scale-bt2020c-refuse-rgb fate-filter-scale-bt2020c-refuse-matrix
-FATE_FILTER-$(call ALLYES, TESTSRC2_FILTER FORMAT_FILTER SETPARAMS_FILTER SCALE_FILTER LAVFI_INDEV WRAPPED_AVFRAME_ENCODER NULL_MUXER) += $(FATE_SCALE_REFUSE)
+FATE_FILTER-$(call ALLYES, TESTSRC2_FILTER FORMAT_FILTER SETPARAMS_FILTER SCALE_FILTER LAVFI_INDEV WRAPPED_AVFRAME_DECODER WRAPPED_AVFRAME_ENCODER NULL_MUXER) += $(FATE_SCALE_REFUSE)
 fate-filter-scale-ipt-c2-refuse-rgb: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv" -vf "scale=flags=accurate_rnd+bitexact,format=gbrp10le" -frames:v 1 -f null none
 fate-filter-scale-ipt-c2-refuse-range: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv" -vf "scale=out_range=pc:flags=accurate_rnd+bitexact" -frames:v 1 -f null none
 fate-filter-scale-ipt-c2-refuse-matrix: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv" -vf "scale=out_color_matrix=bt709:flags=accurate_rnd+bitexact" -frames:v 1 -f null none

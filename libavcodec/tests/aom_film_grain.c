@@ -238,6 +238,56 @@ static int build_explicit_payload(uint8_t *payload, int y_points,
     return put_bytes_output(&bw);
 }
 
+/* Write a parameter set that ends early, padded to its payload size. */
+static void put_skipped_set(PutBitContext *bw, int update_grain)
+{
+    int start = put_bits_count(bw);
+    int payload_size;
+
+    put_bits(bw, 1, !update_grain); // payload_less_than_4byte_flag
+    payload_size = update_grain ? 4 : 1;
+    put_bits(bw, update_grain ? 8 : 2, payload_size);
+    put_bits(bw, 3, 1); // distinct from the following full set
+    put_bits(bw, 1, update_grain);
+    if (update_grain) {
+        put_bits(bw, 16, 1);
+        put_bits(bw, 1, 0);
+    }
+    while (put_bits_count(bw) - start < payload_size * 8)
+        put_bits(bw, 1, 0);
+    flush_put_bits(bw);
+}
+
+/* Build a two-set payload whose first set ends early; return its size. */
+static int build_padded_payload(uint8_t *payload, int update_grain)
+{
+    PutBitContext bw;
+
+    init_put_bits(&bw, payload, 128);
+
+    put_bits(&bw, 1, 1);
+    put_bits(&bw, 4, 0);
+    put_bits(&bw, 3, 1); // two parameter sets
+    flush_put_bits(&bw);
+    put_skipped_set(&bw, update_grain);
+    put_set(&bw, Y, 0, 1);
+
+    return put_bytes_output(&bw);
+}
+
+/* Build a payload whose first set declares 255 bytes; return its size. */
+static int build_truncated_payload(uint8_t *payload, int full_set)
+{
+    int size = full_set ? build_explicit_payload(payload, 1, 0, 0)
+                        : build_padded_payload(payload, 1);
+
+    // The first set stores its 8-bit payload size in bits 1 through 8.
+    payload[1] = 255 >> 1;
+    payload[2] |= (255 & 1) << 7;
+
+    return size;
+}
+
 /* Print the name, count, and coordinates of scaling points. */
 static void print_points(const char *name, int count, const uint8_t points[][2])
 {
@@ -327,6 +377,34 @@ static void run_explicit_case(const char *name, int y_points,
     ff_aom_uninit_film_grain_params(&sets);
 }
 
+/* Parse a padded test payload; print set 0 and whether skipped set 1 exists. */
+static void run_padded_case(const char *name, int update_grain)
+{
+    AVFilmGrainAFGS1Params sets = { 0 };
+    uint8_t payload[128];
+    const AVFilmGrainAOMParams *aom;
+    int size;
+
+    size = build_padded_payload(payload, update_grain);
+    aom = parse_case(name, &sets, payload, size, 0);
+    if (aom)
+        print_points("y", aom->num_y_points, aom->y_points);
+    printf("  skipped-set=%s\n", sets.sets[1] ? "present" : "absent");
+    ff_aom_uninit_film_grain_params(&sets);
+}
+
+/* Parse a payload whose first set runs past the end of the data. */
+static void run_truncated_case(const char *name, int full_set)
+{
+    AVFilmGrainAFGS1Params sets = { 0 };
+    uint8_t payload[128] = { 0 };
+    int size;
+
+    size = build_truncated_payload(payload, full_set);
+    parse_case(name, &sets, payload, size, 0);
+    ff_aom_uninit_film_grain_params(&sets);
+}
+
 /* Run the AFGS1 film grain parameter test cases. */
 int main(void)
 {
@@ -340,6 +418,10 @@ int main(void)
     run_explicit_case("explicit-y-cb0-cr", 1, 0, 1);
     run_explicit_case("explicit-y-cb-cr0", 1, 1, 0);
     run_explicit_case("explicit-y-cb0-cr0", 1, 0, 0);
+    run_padded_case("padded-apply-grain-zero", 0);
+    run_padded_case("padded-update-grain-zero", 1);
+    run_truncated_case("truncated-update-grain-zero", 0);
+    run_truncated_case("truncated-full-set", 1);
 
     return 0;
 }

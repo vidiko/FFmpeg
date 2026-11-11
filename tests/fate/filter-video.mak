@@ -624,6 +624,9 @@ FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 FORMAT SETPARAMS SCALE) += fate-filt
 fate-filter-scale-ipt-c2-repack: CMD = framecrc -flags bitexact -lavfi testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv,scale=flags=accurate_rnd+bitexact,format=p010le -frames:v 1
 fate-filter-scale-ipt-c2-resize: CMD = framecrc -flags bitexact -lavfi testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv,scale=48:32:flags=accurate_rnd+bitexact,format=yuv420p10le -frames:v 1
 
+FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 FORMAT SETPARAMS SCALE) += fate-filter-scale-bt2020c-resize
+fate-filter-scale-bt2020c-resize: CMD = framecrc -flags bitexact -lavfi testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=bt2020c:color_primaries=bt2020:color_trc=bt2020-10:range=pc,scale=32:32:flags=accurate_rnd+bitexact,format=yuv420p -frames:v 1
+
 FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 FORMAT SETPARAMS SCALE NOFORMAT) += fate-filter-noformat-chroma
 fate-filter-noformat-chroma: CMD = framecrc -flags bitexact -lavfi testsrc2=s=64x64:r=1:d=1,format=yuv420p,setparams=chroma_location=left,scale=flags=accurate_rnd+bitexact,noformat=chroma_locations=left -frames:v 1
 

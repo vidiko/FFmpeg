@@ -449,12 +449,14 @@ static av_cold void uninit(AVFilterContext *ctx)
 }
 
 /*
- * IPT-C2 is admitted to query_formats so that a same-colour YUV repack can
- * negotiate; swscale refuses every other conversion of it at frame setup.
+ * IPT-C2 and BT.2020 constant luminance are admitted to query_formats so that
+ * a same-colour YUV repack can negotiate; swscale refuses every other
+ * conversion of them at frame setup.
  */
 static int scale_test_colorspace(enum AVColorSpace csp, int output)
 {
-    return sws_test_colorspace(csp, output) || csp == AVCOL_SPC_IPT_C2;
+    return sws_test_colorspace(csp, output) || csp == AVCOL_SPC_IPT_C2 ||
+           csp == AVCOL_SPC_BT2020_CL;
 }
 
 static int query_formats(const AVFilterContext *ctx,

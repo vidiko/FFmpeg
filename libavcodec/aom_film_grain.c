@@ -161,14 +161,14 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
         fgp->type = get_bits1(gb) ? AV_FILM_GRAIN_PARAMS_AV1 : AV_FILM_GRAIN_PARAMS_NONE;
         if (!fgp->type) {
             av_freep(&fgp);
-            continue;
+            goto skip_payload;
         }
 
         fgp->seed = get_bits(gb, 16);
         update_grain = get_bits1(gb);
         if (!update_grain) {
             av_freep(&fgp);
-            continue;
+            goto skip_payload;
         }
 
         apply_units_log2  = get_bits(gb, 4);
@@ -295,6 +295,8 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                         aom->num_uv_points[uv] = get_bits(gb, 4);
                         if (aom->num_uv_points[uv] > 10)
                             goto error;
+                        if (!aom->num_uv_points[uv])
+                            continue;
                         bits_inc = get_bits(gb, 3) + 1;
                         bits_scaling = get_bits(gb, 2) + 5;
                         uv_offset = get_bits(gb, 8);
@@ -343,10 +345,15 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
         if (n == 0)
             ref = fgp;
 
+skip_payload:
         payload_bits = get_bits_count(gb) - start_position;
-        if (payload_bits > payload_size * 8)
+        if (payload_bits > payload_size * 8 ||
+            payload_size * 8 - payload_bits > get_bits_left(gb))
             goto error;
         skip_bits(gb, payload_size * 8 - payload_bits);
+
+        if (!fgp)
+            continue;
 
         av_buffer_unref(&s->sets[set_idx]);
         s->sets[set_idx] = av_buffer_create((uint8_t *)fgp, fgp_size, NULL, NULL, 0);

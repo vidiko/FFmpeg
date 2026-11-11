@@ -448,7 +448,7 @@ static av_cold void uninit(AVFilterContext *ctx)
     sws_free_context(&scale->sws);
 }
 
-/*
+/**
  * IPT-C2 and BT.2020 constant luminance are admitted to query_formats so that
  * a same-colour YUV repack can negotiate; swscale refuses every other
  * conversion of them at frame setup.

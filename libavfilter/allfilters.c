@@ -322,6 +322,7 @@ extern const FFFilter ff_vf_hflip_vulkan;
 extern const FFFilter ff_vf_histeq;
 extern const FFFilter ff_vf_histogram;
 extern const FFFilter ff_vf_hqdn3d;
+extern const FFFilter ff_vf_hqdn3d_vulkan;
 extern const FFFilter ff_vf_hqx;
 extern const FFFilter ff_vf_hstack;
 extern const FFFilter ff_vf_hsvhold;

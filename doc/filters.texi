@@ -16048,6 +16048,52 @@ The command accepts the same syntax of the corresponding option.
 If the specified expression is not valid, it is kept at its current
 value.
 
+@anchor{hqdn3d_vulkan}
+@section hqdn3d_vulkan
+
+Apply a High Quality 3D Denoiser using Vulkan compute shaders.
+The output is bit-exact to the CPU @ref{hqdn3d} filter. For semiplanar inputs,
+the reference is the CPU filter on the equivalent planar format. The one exception is
+@samp{p010} and @samp{p012}: where the CPU filter writes a value above the
+format maximum, which these formats cannot store, this filter writes the
+format maximum.
+The filter refuses a frame whose software format differs from the link's.
+The filter also refuses a device on which one of these shader or storage
+features is not enabled: @code{shaderInt16}, @code{storageBuffer16BitAccess},
+@code{scalarBlockLayout}, @code{runtimeDescriptorArray},
+@code{shaderStorageImageReadWithoutFormat}, or
+@code{shaderStorageImageWriteWithoutFormat}. A device that FFmpeg creates
+enables each of them that the hardware supports; a device the application
+creates must enable them itself, as support by the physical device is not enough.
+
+Supported input hardware frame software formats:
+@itemize
+@item @samp{yuv420p}
+@item @samp{yuv422p}
+@item @samp{yuv444p}
+@item @samp{yuv420p10}
+@item @samp{yuv444p10}
+@item @samp{yuv420p12}
+@item @samp{yuv444p12}
+@item @samp{yuv420p16}
+@item @samp{yuv444p16}
+@item @samp{nv12}
+@item @samp{p010}
+@item @samp{p012}
+@item @samp{p016}
+@end itemize
+
+The filter accepts the same options as @ref{hqdn3d}:
+@table @option
+@item luma_spatial
+@item chroma_spatial
+@item luma_tmp
+@item chroma_tmp
+@end table
+
+@subsection Commands
+This filter supports the same @ref{commands} as options.
+
 @anchor{hwdownload}
 @section hwdownload
 

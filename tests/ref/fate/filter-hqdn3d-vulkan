@@ -1,0 +1,21 @@
+0 128 72 same
+1 128 72 same
+2 128 72 same
+3 128 72 same
+4 96 56 same
+5 96 56 same
+6 96 56 same
+7 96 56 same
+8 160 96 same
+9 160 96 same
+10 160 96 same
+11 160 96 same
+14 160 96 first same
+12 160 96 yuv420p10 refused EINVAL
+13 160 96 yuv444p refused EINVAL
+f1 160 96 yuv444p refused EINVAL
+p012 0 min 0 max 65520 low 0
+p012 1 min 65520 max 65520 low 0
+p012 2 min 65520 max 65520 low 0
+neg 0 2 2 same luma 0 0 0 0
+neg 1 2 2 same luma 4095 4095 65535 0

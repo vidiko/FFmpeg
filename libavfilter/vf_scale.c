@@ -459,6 +459,11 @@ static int scale_test_colorspace(enum AVColorSpace csp, int output)
            csp == AVCOL_SPC_BT2020_CL;
 }
 
+/**
+ * Offer every pixel format swscale reads or writes and every colour space
+ * scale_test_colorspace() admits; out_color_matrix and out_range fix the
+ * output colour space and range when set.
+ */
 static int query_formats(const AVFilterContext *ctx,
                          AVFilterFormatsConfig **cfg_in,
                          AVFilterFormatsConfig **cfg_out)

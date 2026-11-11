@@ -269,7 +269,10 @@ static int init_pipeline_horizontal(AVFilterContext *ctx, int planes)
     };
     int err;
 
-    err = ff_vk_shader_load(&s->shd_horizontal, VK_SHADER_STAGE_COMPUTE_BIT, NULL,
+    SPEC_LIST_CREATE(sl, 1, 1*sizeof(uint32_t))
+    SPEC_LIST_ADD(sl, 0, 32, planes);
+
+    err = ff_vk_shader_load(&s->shd_horizontal, VK_SHADER_STAGE_COMPUTE_BIT, sl,
                             (uint32_t[]){ 1, 32, 1 }, 0);
     if (err < 0)
         return err;
@@ -303,7 +306,10 @@ static int init_pipeline_vertical(AVFilterContext *ctx, int planes)
     };
     int err;
 
-    err = ff_vk_shader_load(&s->shd_vertical, VK_SHADER_STAGE_COMPUTE_BIT, NULL,
+    SPEC_LIST_CREATE(sl, 1, 1*sizeof(uint32_t))
+    SPEC_LIST_ADD(sl, 0, 32, planes);
+
+    err = ff_vk_shader_load(&s->shd_vertical, VK_SHADER_STAGE_COMPUTE_BIT, sl,
                             (uint32_t[]){ 32, 1, 1 }, 0);
     if (err < 0)
         return err;

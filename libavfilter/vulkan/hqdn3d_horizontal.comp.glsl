@@ -31,7 +31,9 @@
 
 layout (local_size_x_id = 253, local_size_y_id = 254, local_size_z_id = 255) in;
 
-layout (set = 0, binding = 0) uniform readonly uimage2D in_img[];
+/* The filter sets this to the plane count of the frame format. */
+layout (constant_id = 0) const uint planes = 3;
+layout (set = 0, binding = 0) uniform readonly uimage2D in_img[planes];
 
 layout (set = 0, binding = 1, scalar) readonly buffer TablesBuffer {
     int16_t coef_tables[];
@@ -59,7 +61,7 @@ layout (push_constant, scalar) uniform PushConsts {
     uint spatial_enabled;
 };
 
-/* Keep image indices constant: dynamic storage-image indexing is not required. */
+/* Keep indices constant and the last branch inside the array for two-plane formats. */
 uint load_planar(ivec2 c)
 {
     if (plane_idx == 0u)
@@ -67,7 +69,7 @@ uint load_planar(ivec2 c)
     else if (plane_idx == 1u)
         return imageLoad(in_img[1], c).x;
     else
-        return imageLoad(in_img[2], c).x;
+        return imageLoad(in_img[planes - 1u], c).x;
 }
 
 uint load_sample(uint raw, uint s_depth, uint s_msb)

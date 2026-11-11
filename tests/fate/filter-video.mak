@@ -646,7 +646,16 @@ fate-filter-scale-ipt-c2-refuse-primaries: CMD = ! run $(FFMPEG) -nostdin -hide_
 fate-filter-scale-ipt-c2-refuse-transfer: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=ipt-c2:color_primaries=bt2020:color_trc=smpte2084:range=tv" -vf "scale=out_transfer=bt709:flags=accurate_rnd+bitexact" -frames:v 1 -f null none
 fate-filter-scale-bt2020c-refuse-rgb: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=bt2020c:color_primaries=bt2020:color_trc=bt2020-10:range=pc" -vf "scale=flags=accurate_rnd+bitexact,format=gbrp10le" -frames:v 1 -f null none
 fate-filter-scale-bt2020c-refuse-matrix: CMD = ! run $(FFMPEG) -nostdin -hide_banner -f lavfi -i "testsrc2=s=64x64:r=1:d=1,format=yuv420p10le,setparams=colorspace=bt2020c:color_primaries=bt2020:color_trc=bt2020-10:range=pc" -vf "scale=out_color_matrix=bt709:flags=accurate_rnd+bitexact" -frames:v 1 -f null none
-$(FATE_SCALE_REFUSE): CMP = null
+$(FATE_SCALE_REFUSE): CMP = grep
+fate-filter-scale-ipt-c2-refuse-rgb: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:gbrp10le csp:gbr prim:bt2020 trc:smpte2084
+fate-filter-scale-ipt-c2-refuse-range: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084
+fate-filter-scale-ipt-c2-refuse-matrix: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:yuv420p10le csp:bt709 prim:bt2020 trc:smpte2084
+fate-filter-scale-ipt-c2-refuse-gamma: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084
+fate-filter-scale-bt2020c-refuse-gamma: REF = Unsupported input (.*): fmt:yuv420p10le csp:bt2020c prim:bt2020 trc:bt2020-10 -> fmt:yuv420p10le csp:bt2020c prim:bt2020 trc:bt2020-10
+fate-filter-scale-ipt-c2-refuse-primaries: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:yuv420p10le csp:ipt-c2 prim:bt709 trc:smpte2084
+fate-filter-scale-ipt-c2-refuse-transfer: REF = Unsupported input (.*): fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:smpte2084 -> fmt:yuv420p10le csp:ipt-c2 prim:bt2020 trc:bt709
+fate-filter-scale-bt2020c-refuse-rgb: REF = Unsupported input (.*): fmt:yuv420p10le csp:bt2020c prim:bt2020 trc:bt2020-10 -> fmt:gbrp10le csp:gbr prim:bt2020 trc:bt2020-10
+fate-filter-scale-bt2020c-refuse-matrix: REF = Unsupported input (.*): fmt:yuv420p10le csp:bt2020c prim:bt2020 trc:bt2020-10 -> fmt:yuv420p10le csp:bt709 prim:bt2020 trc:bt2020-10
 
 FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 FORMAT SETPARAMS SCALE NOFORMAT) += fate-filter-noformat-chroma
 fate-filter-noformat-chroma: CMD = framecrc -flags bitexact -lavfi testsrc2=s=64x64:r=1:d=1,format=yuv420p,setparams=chroma_location=left,scale=flags=accurate_rnd+bitexact,noformat=chroma_locations=left -frames:v 1

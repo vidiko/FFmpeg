@@ -448,6 +448,22 @@ static av_cold void uninit(AVFilterContext *ctx)
     sws_free_context(&scale->sws);
 }
 
+/**
+ * IPT-C2 and BT.2020 constant luminance are admitted to query_formats so that
+ * a same-colour YUV repack can negotiate; swscale refuses every other
+ * conversion of them at frame setup.
+ */
+static int scale_test_colorspace(enum AVColorSpace csp, int output)
+{
+    return sws_test_colorspace(csp, output) || csp == AVCOL_SPC_IPT_C2 ||
+           csp == AVCOL_SPC_BT2020_CL;
+}
+
+/**
+ * Offer every pixel format swscale reads or writes and every colour space
+ * scale_test_colorspace() admits; out_color_matrix and out_range fix the
+ * output colour space and range when set.
+ */
 static int query_formats(const AVFilterContext *ctx,
                          AVFilterFormatsConfig **cfg_in,
                          AVFilterFormatsConfig **cfg_out)
@@ -485,7 +501,7 @@ static int query_formats(const AVFilterContext *ctx,
     /* accept all supported inputs, even if user overrides their properties */
     formats = ff_all_color_spaces();
     for (int i = 0; i < formats->nb_formats; i++) {
-        if (!sws_test_colorspace(formats->formats[i], 0)) {
+        if (!scale_test_colorspace(formats->formats[i], 0)) {
             for (int j = i--; j + 1 < formats->nb_formats; j++)
                 formats->formats[j] = formats->formats[j + 1];
             formats->nb_formats--;
@@ -504,7 +520,7 @@ static int query_formats(const AVFilterContext *ctx,
     } else {
         formats = ff_all_color_spaces();
         for (int i = 0; i < formats->nb_formats; i++) {
-            if (!sws_test_colorspace(formats->formats[i], 1)) {
+            if (!scale_test_colorspace(formats->formats[i], 1)) {
                 for (int j = i--; j + 1 < formats->nb_formats; j++)
                     formats->formats[j] = formats->formats[j + 1];
                 formats->nb_formats--;

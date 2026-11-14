@@ -76,10 +76,10 @@ static int get_alf_vb_pos(const int h, const int vb_pos_above)
 
 static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(uint8_t, dst0)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, dst1)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
     int16_t filter[LUMA_PARAMS_SIZE];
     int16_t clip[LUMA_PARAMS_SIZE];
 
@@ -133,13 +133,14 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
 
 static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(int, class_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, class_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int32_t, alf_gradient_tmp, [ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE * ALF_NUM_DIR]);
+    static DECLARE_ALIGNED_32(int, class_idx0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int, transpose_idx0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int, class_idx1)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int, transpose_idx1)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int32_t, alf_gradient_tmp)[ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE *
+                                                         ALF_NUM_DIR];
 
     ptrdiff_t stride = SRC_PIXEL_STRIDE * SIZEOF_PIXEL;
     int offset = (3 * SRC_PIXEL_STRIDE + 3) * SIZEOF_PIXEL;

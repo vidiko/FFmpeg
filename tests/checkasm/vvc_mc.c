@@ -74,10 +74,10 @@ static const int sizes[] = { 2, 4, 8, 16, 32, 64, 128 };
 
 static av_noinline void check_put_vvc_luma(void)
 {
-    LOCAL_ALIGNED_32(int16_t, dst0, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(int16_t, dst1, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(int16_t, dst0)[DST_BUF_SIZE / 2];
+    static DECLARE_ALIGNED_32(int16_t, dst1)[DST_BUF_SIZE / 2];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
     VVCDSPContext c;
 
     declare_func(void, int16_t *dst, const uint8_t *src, const ptrdiff_t src_stride,
@@ -122,10 +122,10 @@ static av_noinline void check_put_vvc_luma(void)
 
 static av_noinline void check_put_vvc_luma_uni(void)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(uint8_t, dst0)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, dst1)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
 
     VVCDSPContext c;
     declare_func(void, uint8_t *dst, ptrdiff_t dststride,
@@ -173,10 +173,10 @@ static av_noinline void check_put_vvc_luma_uni(void)
 
 static av_noinline void check_put_vvc_chroma(void)
 {
-    LOCAL_ALIGNED_32(int16_t, dst0, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(int16_t, dst1, [DST_BUF_SIZE / 2]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(int16_t, dst0)[DST_BUF_SIZE / 2];
+    static DECLARE_ALIGNED_32(int16_t, dst1)[DST_BUF_SIZE / 2];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
     VVCDSPContext c;
 
     declare_func(void, int16_t *dst, const uint8_t *src, const ptrdiff_t src_stride,
@@ -221,10 +221,10 @@ static av_noinline void check_put_vvc_chroma(void)
 
 static av_noinline void check_put_vvc_chroma_uni(void)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(uint8_t, dst0)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, dst1)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
 
     VVCDSPContext c;
     declare_func(void, uint8_t *dst, ptrdiff_t dststride,
@@ -275,12 +275,12 @@ static av_noinline void check_put_vvc_chroma_uni(void)
 
 static av_noinline void check_avg(void)
 {
-    LOCAL_ALIGNED_32(int16_t, src00, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src01, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src10, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int16_t, src11, [AVG_SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst0, [AVG_DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [AVG_DST_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(int16_t, src00)[AVG_SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int16_t, src01)[AVG_SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int16_t, src10)[AVG_SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(int16_t, src11)[AVG_SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, dst0)[AVG_DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, dst1)[AVG_DST_BUF_SIZE];
     VVCDSPContext c;
 
     for (int bit_depth = 8; bit_depth <= 12; bit_depth += 2) {
@@ -335,10 +335,10 @@ static av_noinline void check_avg(void)
 #define SR_RANGE 2
 static av_noinline void check_dmvr(void)
 {
-    LOCAL_ALIGNED_32(uint16_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint16_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t,  src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t,  src1, [SRC_BUF_SIZE]);
+    static DECLARE_ALIGNED_32(uint16_t, dst0)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint16_t, dst1)[DST_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src0)[SRC_BUF_SIZE];
+    static DECLARE_ALIGNED_32(uint8_t, src1)[SRC_BUF_SIZE];
     const int dst_stride = MAX_PB_SIZE;
 
     VVCDSPContext c;
@@ -369,8 +369,8 @@ static av_noinline void check_dmvr(void)
                         }
 
                         if (check_func(c.inter.dmvr[j][i], "%s_%d_%dx%d", type, bit_depth, pred_w, pred_h)) {
-                            memset(dst0, 0, DST_BUF_SIZE);
-                            memset(dst1, 0, DST_BUF_SIZE);
+                            memset(dst0, 0, sizeof(dst0));
+                            memset(dst1, 0, sizeof(dst1));
                             call_ref(dst0, src0 + SRC_OFFSET, PIXEL_STRIDE, pred_h, mx, my, pred_w);
                             call_new(dst1, src1 + SRC_OFFSET, PIXEL_STRIDE, pred_h, mx, my, pred_w);
                             for (int k = 0; k < pred_h; k++) {
@@ -435,8 +435,8 @@ static av_noinline void check_vvc_sad(void)
 {
     const int bit_depth = 10;
     VVCDSPContext c;
-    LOCAL_ALIGNED_32(uint16_t, src0, [MAX_CTU_SIZE * MAX_CTU_SIZE * 4]);
-    LOCAL_ALIGNED_32(uint16_t, src1, [MAX_CTU_SIZE * MAX_CTU_SIZE * 4]);
+    static DECLARE_ALIGNED_32(uint16_t, src0)[MAX_CTU_SIZE * MAX_CTU_SIZE * 4];
+    static DECLARE_ALIGNED_32(uint16_t, src1)[MAX_CTU_SIZE * MAX_CTU_SIZE * 4];
     declare_func(int, const int16_t *src0, const int16_t *src1, int dx, int dy, int block_w, int block_h);
 
     ff_vvc_dsp_init(&c, bit_depth);

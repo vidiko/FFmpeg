@@ -28,6 +28,7 @@
 
 #include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 
 static const uint32_t pixel_mask[3] = { 0xffffffff, 0x03ff03ff, 0x0fff0fff };
@@ -76,10 +77,10 @@ static int get_alf_vb_pos(const int h, const int vb_pos_above)
 
 static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(uint8_t, dst0, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, dst1, [DST_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
+    uint8_t *dst0 = av_malloc(DST_BUF_SIZE);
+    uint8_t *dst1 = av_malloc(DST_BUF_SIZE);
+    uint8_t *src0 = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1 = av_malloc(SRC_BUF_SIZE);
     int16_t filter[LUMA_PARAMS_SIZE];
     int16_t clip[LUMA_PARAMS_SIZE];
 
@@ -94,7 +95,8 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
     declare_func(void, uint8_t *dst, ptrdiff_t dst_stride, const uint8_t *src, ptrdiff_t src_stride,
         int width, int height, const int16_t *filter, const int16_t *clip, const int vb_pos);
 
-    randomize_buffers(src0, src1, SRC_BUF_SIZE);
+    if (src0 && src1)
+        randomize_buffers(src0, src1, SRC_BUF_SIZE);
     randomize_buffers2(filter, LUMA_PARAMS_SIZE, 1);
     randomize_buffers2(clip, LUMA_PARAMS_SIZE, 0);
 
@@ -103,6 +105,10 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
             //Both picture size and virtual boundaries are 8-aligned. For luma, we only need to check 8-aligned sizes.
             if (!(w % 8) && !(h % 8)) {
                 if (check_func(c->alf.filter[LUMA], "vvc_alf_filter_luma_%dx%d_%d", w, h, bit_depth)) {
+                    if (!dst0 || !dst1 || !src0 || !src1) {
+                        fail();
+                        continue;
+                    }
                     const int vb_pos = get_alf_vb_pos(h, ALF_VB_POS_ABOVE_LUMA);
                     memset(dst0, 0, DST_BUF_SIZE);
                     memset(dst1, 0, DST_BUF_SIZE);
@@ -117,6 +123,10 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
             //For chroma, once it exceeds 64, it's not a 4:2:0 format, so we only need to check 8-aligned sizes as well.
             if ((w <= 64 || !(w % 8)) && (h <= 64 || !(h % 8))) {
                 if (check_func(c->alf.filter[CHROMA], "vvc_alf_filter_chroma_%dx%d_%d", w, h, bit_depth)) {
+                    if (!dst0 || !dst1 || !src0 || !src1) {
+                        fail();
+                        continue;
+                    }
                     const int vb_pos = get_alf_vb_pos(h, ALF_VB_POS_ABOVE_CHROMA);
                     memset(dst0, 0, DST_BUF_SIZE);
                     memset(dst1, 0, DST_BUF_SIZE);
@@ -129,17 +139,23 @@ static void check_alf_filter(VVCDSPContext *c, const int bit_depth)
             }
         }
     }
+
+    av_free(dst0);
+    av_free(dst1);
+    av_free(src0);
+    av_free(src1);
 }
 
 static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
 {
-    LOCAL_ALIGNED_32(int, class_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, class_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int, transpose_idx1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src0, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(uint8_t, src1, [SRC_BUF_SIZE]);
-    LOCAL_ALIGNED_32(int32_t, alf_gradient_tmp, [ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE * ALF_NUM_DIR]);
+    int *class_idx0     = av_malloc_array(SRC_BUF_SIZE, sizeof(*class_idx0));
+    int *transpose_idx0 = av_malloc_array(SRC_BUF_SIZE, sizeof(*transpose_idx0));
+    int *class_idx1     = av_malloc_array(SRC_BUF_SIZE, sizeof(*class_idx1));
+    int *transpose_idx1 = av_malloc_array(SRC_BUF_SIZE, sizeof(*transpose_idx1));
+    uint8_t *src0       = av_malloc(SRC_BUF_SIZE);
+    uint8_t *src1       = av_malloc(SRC_BUF_SIZE);
+    int32_t *alf_gradient_tmp = av_malloc_array(ALF_GRADIENT_SIZE * ALF_GRADIENT_SIZE * ALF_NUM_DIR,
+                                                 sizeof(*alf_gradient_tmp));
 
     ptrdiff_t stride = SRC_PIXEL_STRIDE * SIZEOF_PIXEL;
     int offset = (3 * SRC_PIXEL_STRIDE + 3) * SIZEOF_PIXEL;
@@ -147,7 +163,8 @@ static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
     declare_func(void, int *class_idx, int *transpose_idx,
         const uint8_t *src, ptrdiff_t src_stride, int width, int height, int vb_pos, int *gradient_tmp);
 
-    randomize_buffers(src0, src1, SRC_BUF_SIZE);
+    if (src0 && src1)
+        randomize_buffers(src0, src1, SRC_BUF_SIZE);
 
     //Both picture size and virtual boundaries are 8-aligned. Classify is luma only, we only need to check 8-aligned sizes.
     for (int h = 8; h <= MAX_CTU_SIZE; h += 8) {
@@ -155,6 +172,10 @@ static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
             const int id_size = w * h / ALF_BLOCK_SIZE / ALF_BLOCK_SIZE * sizeof(int);
             const int vb_pos  = get_alf_vb_pos(h, ALF_VB_POS_ABOVE_LUMA);
             if (check_func(c->alf.classify, "vvc_alf_classify_%dx%d_%d", w, h, bit_depth)) {
+                if (!class_idx0 || !transpose_idx0 || !class_idx1 || !transpose_idx1 || !src0 || !src1 || !alf_gradient_tmp) {
+                    fail();
+                    continue;
+                }
                 memset(class_idx0, 0, id_size);
                 memset(class_idx1, 0, id_size);
                 memset(transpose_idx0, 0, id_size);
@@ -173,6 +194,14 @@ static void check_alf_classify(VVCDSPContext *c, const int bit_depth)
             }
         }
     }
+
+    av_free(class_idx0);
+    av_free(transpose_idx0);
+    av_free(class_idx1);
+    av_free(transpose_idx1);
+    av_free(src0);
+    av_free(src1);
+    av_free(alf_gradient_tmp);
 }
 
 void checkasm_check_vvc_alf(void)

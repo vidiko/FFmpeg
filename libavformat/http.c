@@ -156,6 +156,8 @@ typedef struct HTTPContext {
     int willclose;
     /* A flag which indicates if the end of chunked encoding has been sent. */
     int end_chunked_post;
+    /* Upload close wait left the connection unusable for keep-alive. */
+    int upload_close_unusable;
     /* A flag which indicates we have finished to read POST reply. */
     int end_header;
     /* how much data was read since the last ICY metadata packet */
@@ -175,6 +177,14 @@ typedef struct HTTPContext {
     /* Reply is a partial response with unknown total ("bytes A-B/" + '*'). */
     int content_range_unknown_size;
     int line_count;
+    /* Upload reply status (101 or final) already read in http_connect. */
+    int upload_reply_at_connect;
+    /* Ignore Content-Encoding while discarding an upload reply. */
+    int ignore_upload_content_encoding;
+    /* Nonzero while http_discard_upload_response reads from the connection. */
+    int upload_drain;
+    /* Bytes left the drain may still read from the connection. */
+    int upload_drain_left;
 
     /******************
      * Listener state *
@@ -628,8 +638,15 @@ int ff_http_do_new_request2(URLContext *h, const char *uri, AVDictionary **opts)
             return ret;
     }
 
-    if (s->willclose)
-        return AVERROR_EOF;
+    /* Reconnect after an upload close wait marked the connection closed. */
+    if (s->willclose) {
+        if (s->upload_close_unusable) {
+            ffurl_closep(&s->hd);
+            s->upload_close_unusable = 0;
+        } else {
+            return AVERROR_EOF;
+        }
+    }
 
     s->end_chunked_post = 0;
     s->chunkend      = 0;
@@ -908,11 +925,27 @@ fail:
     return ret;
 }
 
+/* Read from the connection for http_getc and http_buf_read. */
+static int http_read_hd(HTTPContext *s, uint8_t *buf, int size)
+{
+    int len;
+
+    if (!s->upload_drain)
+        return ffurl_read(s->hd, buf, size);
+    if (!s->upload_drain_left)
+        return AVERROR(EAGAIN);
+    size = FFMIN(size, s->upload_drain_left);
+    len = ffurl_read(s->hd, buf, size);
+    if (len > 0)
+        s->upload_drain_left -= len;
+    return len;
+}
+
 static int http_getc(HTTPContext *s)
 {
     int len;
     if (s->buf_ptr >= s->buf_end) {
-        len = ffurl_read(s->hd, s->buffer, BUFFER_SIZE);
+        len = http_read_hd(s, s->buffer, BUFFER_SIZE);
         if (len < 0) {
             return len;
         } else if (len == 0) {
@@ -1398,7 +1431,8 @@ static int process_line(URLContext *h, char *line, int line_count, int *parsed_h
             if ((ret = parse_icy(s, tag, p)) < 0)
                 return ret;
         } else if (!av_strcasecmp(tag, "Content-Encoding")) {
-            if ((ret = parse_content_encoding(h, p)) < 0)
+            if (!s->ignore_upload_content_encoding &&
+                (ret = parse_content_encoding(h, p)) < 0)
                 return ret;
         } else if (!av_strcasecmp(tag, "Expires")) {
             parse_expires(s, p);
@@ -1640,6 +1674,9 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
 
     av_bprint_init_for_buffer(&request, s->buffer, sizeof(s->buffer));
 
+    s->upload_reply_at_connect = 0;
+    s->upload_close_unusable   = 0;
+
     /* send http header */
     post = h->flags & AVIO_FLAG_WRITE;
 
@@ -1795,6 +1832,9 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
     if (err < 0)
         goto done;
 
+    if (s->http_code == 101 || s->http_code >= 200)
+        s->upload_reply_at_connect = 1;
+
     s->nb_requests++;
     s->sum_latency += latency;
     s->max_latency = FFMAX(s->max_latency, latency);
@@ -1897,7 +1937,7 @@ static int http_buf_read(URLContext *h, uint8_t *buf, int size)
             return AVERROR_EOF;
         if (s->off == target_end && target_end < file_end)
             return AVERROR(EAGAIN); /* reached end of content range */
-        len = ffurl_read(s->hd, buf, size);
+        len = http_read_hd(s, buf, size);
         /* A chunk body that stops short of its declared size is not a
          * clean end, even when the resource length is unknown. */
         if (s->chunksize != UINT64_MAX && s->chunksize > 0 &&
@@ -2184,6 +2224,144 @@ static int http_write(URLContext *h, const uint8_t *buf, int size)
     return size;
 }
 
+/*
+ * Enough for typical API error pages; caps all bytes read from the
+ * connection while draining an upload reply, framing included.
+ */
+#define HTTP_DISCARD_UPLOAD_MAX (64 * 1024)
+/* Interim 1xx blocks per upload (100 Continue, 102 Processing, 103 Early
+ * Hints) are few in practice; this cap stops a server that sends interim
+ * blocks without end from holding the connection open. */
+#define HTTP_UPLOAD_INTERIM_MAX 8
+
+/* True when the upload reply body ended per framing, not the last read. */
+static int upload_reply_body_framing_complete(const HTTPContext *s)
+{
+    if (s->chunksize != UINT64_MAX)
+        return s->chunkend;
+    if (s->filesize != UINT64_MAX)
+        return s->off >= s->filesize;
+    return 0;
+}
+
+/* Drain the reply body after a write-only upload without blocking. */
+static int http_discard_upload_response(URLContext *h)
+{
+    HTTPContext *s = h->priv_data;
+    uint8_t buf[4096];
+    int n, hd_flags = 0;
+
+    if (!s->hd)
+        return 0;
+
+    hd_flags = s->hd->flags;
+    s->hd->flags |= AVIO_FLAG_NONBLOCK;
+    s->upload_drain = 1;
+    s->upload_drain_left = HTTP_DISCARD_UPLOAD_MAX;
+
+    /* The loop ends within the byte budget, since every read from the
+     * connection lowers it and buffered bytes are at most BUFFER_SIZE. */
+    do {
+        n = http_buf_read(h, buf, sizeof(buf));
+    } while (n > 0);
+    s->upload_drain = 0;
+
+    if (!s->hd) {
+        s->willclose = 1;
+        return 0;
+    }
+    s->hd->flags = hd_flags;
+
+    if (!s->upload_drain_left || !upload_reply_body_framing_complete(s))
+        s->willclose = 1;
+    return 0;
+}
+
+/* Handle final upload reply status after interim headers are done. */
+static int http_finish_upload_reply_tail(URLContext *h)
+{
+    HTTPContext *s = h->priv_data;
+
+    if (s->http_code == 401 || s->http_code == 407)
+        return ff_http_averror(s->http_code, AVERROR(EIO));
+
+    if (s->http_code == 101) {
+        s->willclose = 1;
+        return 0;
+    }
+
+    /* RFC 9110: 204 and 304 responses carry no message body. */
+    if (s->http_code == 204 || s->http_code == 304)
+        return 0;
+
+    return http_discard_upload_response(h);
+}
+
+/* Read or reuse the upload reply after the terminating chunk. */
+static int http_finish_chunked_upload(URLContext *h)
+{
+    HTTPContext *s = h->priv_data;
+    int err, interim = 0;
+    int willclose_at_start = s->willclose;
+
+    if (s->upload_reply_at_connect) {
+        err = http_finish_upload_reply_tail(h);
+        if (!willclose_at_start && s->willclose)
+            s->upload_close_unusable = 1;
+        return err;
+    }
+
+    s->line_count = 0;
+    s->off        = 0;
+    s->chunkend   = 0;
+    s->end_header = 0;
+    s->filesize   = UINT64_MAX;
+    s->chunksize  = UINT64_MAX;
+
+    s->ignore_upload_content_encoding = 1;
+    err = http_read_header(h);
+    s->ignore_upload_content_encoding = 0;
+    if (err < 0)
+        return err;
+
+    /* Interim 1xx before the final status: one header block per reply;
+     * line_count, end_header, and the body length fields reset before each
+     * read; buf_ptr and buf_end are kept because the final status line may
+     * already sit in the buffer. */
+    while (s->http_code >= 100 && s->http_code < 200) {
+        if (s->http_code == 101)
+            break;
+        if (interim >= HTTP_UPLOAD_INTERIM_MAX) {
+            s->willclose = 1;
+            if (!willclose_at_start)
+                s->upload_close_unusable = 1;
+            return AVERROR_INVALIDDATA;
+        }
+        interim++;
+        s->line_count = 0;
+        s->end_header = 0;
+        s->off        = 0;
+        s->chunkend   = 0;
+        s->filesize   = UINT64_MAX;
+        s->chunksize  = UINT64_MAX;
+        s->ignore_upload_content_encoding = 1;
+        err = http_read_header(h);
+        s->ignore_upload_content_encoding = 0;
+        if (err < 0)
+            return err;
+    }
+
+    err = http_finish_upload_reply_tail(h);
+    if (!willclose_at_start && s->willclose)
+        s->upload_close_unusable = 1;
+    return err;
+}
+
+/*
+ * Send the terminating zero-length chunk when a chunked request is open.
+ * For write-only client uploads, read or reuse the server reply, drain
+ * any body without blocking, and return errors from its status line only.
+ */
 static int http_shutdown(URLContext *h, int flags)
 {
     int ret = 0;
@@ -2195,15 +2373,13 @@ static int http_shutdown(URLContext *h, int flags)
         ((flags & AVIO_FLAG_READ) && s->chunked_post && s->listen)) {
         ret = ffurl_write(s->hd, footer, sizeof(footer) - 1);
         ret = ret > 0 ? 0 : ret;
-        /* flush the receive buffer when it is write only mode */
-        if (!(flags & AVIO_FLAG_READ)) {
-            char buf[1024];
-            int read_ret;
-            s->hd->flags |= AVIO_FLAG_NONBLOCK;
-            read_ret = ffurl_read(s->hd, buf, sizeof(buf));
-            s->hd->flags &= ~AVIO_FLAG_NONBLOCK;
-            if (read_ret < 0 && read_ret != AVERROR(EAGAIN)) {
-                av_log(h, AV_LOG_ERROR, "URL read error: %s\n", av_err2str(read_ret));
+        if (!(flags & AVIO_FLAG_READ) && !(h->flags & AVIO_FLAG_READ) &&
+            ret >= 0 && !s->listen && !s->is_connected_server &&
+            !s->is_multi_client) {
+            int read_ret = http_finish_chunked_upload(h);
+            if (read_ret < 0) {
+                av_log(h, AV_LOG_ERROR, "URL read error: %s\n",
+                       av_err2str(read_ret));
                 ret = read_ret;
             }
         }
@@ -2218,14 +2394,14 @@ static int http_close(URLContext *h)
     int ret = 0;
     HTTPContext *s = h->priv_data;
 
+    if (s->hd && !s->end_chunked_post)
+        /* Close the write direction by sending the end of chunked encoding. */
+        ret = http_shutdown(h, h->flags);
+
 #if CONFIG_ZLIB
     inflateEnd(&s->inflate_stream);
     av_freep(&s->inflate_buffer);
 #endif /* CONFIG_ZLIB */
-
-    if (s->hd && !s->end_chunked_post)
-        /* Close the write direction by sending the end of chunked encoding. */
-        ret = http_shutdown(h, h->flags);
 
     if (s->hd)
         ffurl_closep(&s->hd);

@@ -367,6 +367,9 @@ static int tls_read(URLContext *h, uint8_t *buf, int size)
     TLSContext *c = h->priv_data;
     size_t available = 0, processed = 0;
     int ret;
+    // Set or clear the AVIO_FLAG_NONBLOCK on the underlying socket
+    c->tls_shared.tcp->flags &= ~AVIO_FLAG_NONBLOCK;
+    c->tls_shared.tcp->flags |= h->flags & AVIO_FLAG_NONBLOCK;
     SSLGetBufferedReadSize(c->ssl_context, &available);
     if (available)
         size = FFMIN(available, size);
@@ -383,7 +386,11 @@ static int tls_write(URLContext *h, const uint8_t *buf, int size)
 {
     TLSContext *c = h->priv_data;
     size_t processed = 0;
-    int ret = SSLWrite(c->ssl_context, buf, size, &processed);
+    int ret;
+    // Set or clear the AVIO_FLAG_NONBLOCK on the underlying socket
+    c->tls_shared.tcp->flags &= ~AVIO_FLAG_NONBLOCK;
+    c->tls_shared.tcp->flags |= h->flags & AVIO_FLAG_NONBLOCK;
+    ret = SSLWrite(c->ssl_context, buf, size, &processed);
     ret = map_ssl_error(ret, processed);
     if (ret > 0)
         return ret;

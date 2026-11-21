@@ -2723,6 +2723,9 @@ fail:
 static int http_proxy_write(URLContext *h, const uint8_t *buf, int size)
 {
     HTTPContext *s = h->priv_data;
+    // Set or clear the AVIO_FLAG_NONBLOCK on the underlying socket
+    s->hd->flags &= ~AVIO_FLAG_NONBLOCK;
+    s->hd->flags |= h->flags & AVIO_FLAG_NONBLOCK;
     return ffurl_write(s->hd, buf, size);
 }
 
@@ -2746,6 +2749,9 @@ static int http_proxy_read(URLContext *h, uint8_t *buf, int size)
         s->buf_ptr += len;
         return len;
     }
+    // Set or clear the AVIO_FLAG_NONBLOCK on the underlying socket
+    s->hd->flags &= ~AVIO_FLAG_NONBLOCK;
+    s->hd->flags |= h->flags & AVIO_FLAG_NONBLOCK;
     return ffurl_read(s->hd, buf, size);
 }
 
